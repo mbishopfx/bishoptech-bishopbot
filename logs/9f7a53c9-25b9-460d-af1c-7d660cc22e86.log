@@ -1,0 +1,5 @@
+Timestamp: 2026-01-27 21:44:57
+Log ID: 9f7a53c9-25b9-460d-af1c-7d660cc22e86
+
+Error:
+404 models/gemini-1.5-pro is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.

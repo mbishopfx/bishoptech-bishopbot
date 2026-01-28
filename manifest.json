@@ -1,0 +1,50 @@
+{
+    "display_information": {
+        "name": "BishopBot CLI",
+        "description": "Hybrid AI-CLI Shell for BishopTech",
+        "background_color": "#0a0a0a"
+    },
+    "features": {
+        "bot_user": {
+            "display_name": "BishopBot CLI",
+            "always_online": true
+        },
+        "slash_commands": [
+            {
+                "command": "/cli",
+                "description": "Run NL-to-CLI commands",
+                "usage_hint": "change header to 'Hello'"
+            },
+            {
+                "command": "/google",
+                "description": "Access Google Workspace",
+                "usage_hint": "get my last 5 emails"
+            },
+            {
+                "command": "/research",
+                "description": "Run Agentic Research",
+                "usage_hint": "quantum computing trends"
+            },
+            {
+                "command": "/audit",
+                "description": "Website Audit",
+                "usage_hint": "https://example.com"
+            }
+        ]
+    },
+    "oauth_config": {
+        "scopes": {
+            "bot": [
+                "commands",
+                "chat:write",
+                "chat:write.public"
+            ]
+        }
+    },
+    "settings": {
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": true,
+        "is_hosted": false,
+        "token_rotation_enabled": false
+    }
+}
