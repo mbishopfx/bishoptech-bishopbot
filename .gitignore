@@ -1,0 +1,10 @@
+logs/*.log
+token.json
+knowledge_base.json
+dump.rdb
+.env
+*.pyc
+__pycache__/
+.DS_Store
+.gemini/
+test_google_service.py

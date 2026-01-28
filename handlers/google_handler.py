@@ -8,6 +8,7 @@ def handle_google_command(input_text, command="/google"):
     try:
         # Map command to context type
         context_map = {
+            "/google": None, # Search everything
             "/gmail": "gmail",
             "/drive": "drive",
             "/calendar": "calendar",

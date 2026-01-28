@@ -62,6 +62,11 @@ def research_handler(ack, body, say):
     ack()
     enqueue_task("/research", body, say)
 
+@app.command("/google")
+def google_handler(ack, body, say):
+    ack()
+    enqueue_task("/google", body, say)
+
 if __name__ == "__main__":
     # Start the app using Socket Mode
     handler = SocketModeHandler(app, CONFIG["SLACK_APP_TOKEN"])

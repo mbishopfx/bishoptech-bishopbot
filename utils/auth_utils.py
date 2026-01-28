@@ -27,8 +27,8 @@ def get_credentials():
             flow = InstalledAppFlow.from_client_secrets_file(
                 'client_secrets.json', SCOPES)
             # Use a fixed port to avoid redirect_uri mismatches in Google Console
-            # Ensure http://localhost:8080/ is added to your 'Authorized redirect URIs' in Google Console
-            creds = flow.run_local_server(port=8080)
+            # access_type='offline' and prompt='consent' ensure we get a refresh_token
+            creds = flow.run_local_server(port=8080, access_type='offline', prompt='consent')
         
         # Save the credentials for the next run
         with open('token.json', 'w') as token:
