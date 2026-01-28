@@ -24,11 +24,11 @@ WORKER_PID=$!
 # Give it a few seconds to initialize and print warnings
 sleep 5
 
-# 2. Ask if user wants to run the listener locally
+# 2. Ask if user wants to run the listener or monitor locally
 echo ""
 echo "-------------------------------------------------------"
-echo "Railway is likely running your Listener and Monitor 24/7."
-echo "Only run these locally if you are debugging or NOT using Railway."
+echo "RAILWAY: Runs your Slack Listener (app.py) and GitHub Monitor."
+echo "LOCAL: Runs the Worker (local_worker.py) to execute CLI/Google tasks."
 echo "-------------------------------------------------------"
 
 # Clear any accidental keystrokes from the buffer
