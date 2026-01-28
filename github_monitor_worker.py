@@ -6,6 +6,29 @@ from config import CONFIG
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 SLACK_NOTIFICATIONS_CHANNEL = os.getenv("SLACK_NOTIFICATIONS_CHANNEL")
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+
+def send_slack_message(text):
+    """Utility to send a slack message using the bot token."""
+    if not SLACK_BOT_TOKEN or not SLACK_NOTIFICATIONS_CHANNEL:
+        print(f"⚠️ Cannot send Slack message (missing token/channel): {text}")
+        return
+    
+    try:
+        url = "https://slack.com/api/chat.postMessage"
+        headers = {
+            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "channel": SLACK_NOTIFICATIONS_CHANNEL,
+            "text": text
+        }
+        resp = requests.post(url, headers=headers, json=payload)
+        if not resp.json().get("ok"):
+            print(f"❌ Slack API Error: {resp.json()}")
+    except Exception as e:
+        print(f"❌ Error sending Slack message: {e}")
 
 def get_repos():
     """Fetch all repos for the authenticated user, handling pagination."""
@@ -43,8 +66,7 @@ def get_latest_commit(repo_full_name, default_branch="main"):
 
 def monitor_commits():
     print("🕵️ Starting GitHub Commit Monitor...")
-    if not SLACK_NOTIFICATIONS_CHANNEL:
-        print("⚠️ Warning: SLACK_NOTIFICATIONS_CHANNEL not set. Messages will only be printed to console.")
+    send_slack_message("🚀 *GitHub Monitor Online* (Railway)\nMonitoring 80+ repositories for activity.")
     
     last_known_commits = {}
     
@@ -78,19 +100,12 @@ def monitor_commits():
                     
                     # Notify Slack
                     slack_msg = f"📦 *New Progress Detected in {name}*\n> {message}\n_Gemini CLI progression log updated._"
-                    
-                    if SLACK_NOTIFICATIONS_CHANNEL:
-                        try:
-                            # Avoid circular import by using app client directly if possible or creating a small client
-                            from slack_bolt import App
-                            slack_app = App(token=os.getenv("SLACK_BOT_TOKEN"))
-                            slack_app.client.chat_postMessage(channel=SLACK_NOTIFICATIONS_CHANNEL, text=slack_msg)
-                        except Exception as slack_err:
-                            print(f"❌ Slack notification failed: {slack_err}")
+                    send_slack_message(slack_msg)
                     
                     last_known_commits[name] = current_sha
             
-            time.sleep(60) # Poll every minute
+            # Use a slightly longer sleep to avoid hitting rate limits if many repos
+            time.sleep(60) 
         except Exception as e:
             print(f"❌ Error in monitor: {e}")
             time.sleep(30) # Wait before retrying
