@@ -15,4 +15,6 @@ CONFIG = {
     "PROJECT_ROOT_DIR": os.getenv("PROJECT_ROOT_DIR", os.getcwd()),
     "REDIS_URL": os.getenv("REDIS_URL"),
     "TASK_QUEUE_NAME": os.getenv("TASK_QUEUE_NAME", "bishopbot_tasks"),
+    "GITHUB_TOKEN": os.getenv("GITHUB_TOKEN"),
+    "SLACK_NOTIFICATIONS_CHANNEL": os.getenv("SLACK_NOTIFICATIONS_CHANNEL"),
 }

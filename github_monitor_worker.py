@@ -4,14 +4,16 @@ import aiohttp
 from config import CONFIG
 
 GITHUB_API_URL = "https://api.github.com"
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-SLACK_NOTIFICATIONS_CHANNEL = os.getenv("SLACK_NOTIFICATIONS_CHANNEL")
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+GITHUB_TOKEN = CONFIG.get("GITHUB_TOKEN")
+SLACK_NOTIFICATIONS_CHANNEL = CONFIG.get("SLACK_NOTIFICATIONS_CHANNEL")
+SLACK_BOT_TOKEN = CONFIG.get("SLACK_BOT_TOKEN")
 
 async def send_slack_message(session, text):
     """Utility to send a slack message using the bot token."""
     if not SLACK_BOT_TOKEN or not SLACK_NOTIFICATIONS_CHANNEL:
         print(f"⚠️ Cannot send Slack message (missing token/channel): {text}")
+        print(f"DEBUG: SLACK_BOT_TOKEN is {'Set' if SLACK_BOT_TOKEN else 'None'}")
+        print(f"DEBUG: SLACK_NOTIFICATIONS_CHANNEL is {'Set' if SLACK_NOTIFICATIONS_CHANNEL else 'None'}")
         return
     
     try:
@@ -28,6 +30,8 @@ async def send_slack_message(session, text):
             data = await resp.json()
             if not data.get("ok"):
                 print(f"❌ Slack API Error: {data}")
+            else:
+                print(f"📡 Slack Notification Sent: {text[:50]}...")
     except Exception as e:
         print(f"❌ Error sending Slack message: {e}")
 
@@ -37,6 +41,10 @@ async def get_repos(session):
     page = 1
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     
+    if not GITHUB_TOKEN:
+        print("❌ Error: GITHUB_TOKEN is not set in environment or CONFIG.")
+        return []
+
     while True:
         url = f"{GITHUB_API_URL}/user/repos?sort=updated&per_page=100&page={page}"
         try:
@@ -70,10 +78,15 @@ async def get_latest_commit(session, repo_full_name, default_branch="main"):
                 return data['sha'], data['commit']['message']
             
             # Fallback to master if main fails
-            if default_branch == "main":
+            if resp.status == 404 and default_branch == "main":
                 return await get_latest_commit(session, repo_full_name, default_branch="master")
+            
+            if resp.status != 200:
+                # Silently fail for individual repos to avoid flooding logs
+                return None, None
     except Exception as e:
-        print(f"❌ Error fetching commit for {repo_full_name}: {e}")
+        # print(f"❌ Error fetching commit for {repo_full_name}: {e}")
+        pass
     
     return None, None
 
@@ -96,7 +109,8 @@ async def check_repo_batch(session, repos, last_known_commits):
     
     # Process repos in batches of 10 to avoid rate limits
     batch_size = 10
-    for i in range(0, len(repos), batch_size):
+    total_repos = len(repos)
+    for i in range(0, total_repos, batch_size):
         batch = repos[i:i+batch_size]
         tasks = [check_single(repo) for repo in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -108,14 +122,16 @@ async def check_repo_batch(session, repos, last_known_commits):
                 new_commits.append(result)
         
         # Small delay between batches to be nice to the API
-        if i + batch_size < len(repos):
-            await asyncio.sleep(1)
+        if i + batch_size < total_repos:
+            await asyncio.sleep(0.5)
     
     return new_commits
 
 async def monitor_commits():
     """Main async monitoring loop."""
     print("🕵️ Starting GitHub Commit Monitor (Async)...")
+    print(f"DEBUG: GITHUB_TOKEN present: {bool(GITHUB_TOKEN)}")
+    print(f"DEBUG: SLACK_CHANNEL present: {bool(SLACK_NOTIFICATIONS_CHANNEL)}")
     
     async with aiohttp.ClientSession() as session:
         await send_slack_message(session, "🚀 *GitHub Monitor Online* (Railway - Async)\nMonitoring repositories for activity.")
@@ -126,6 +142,9 @@ async def monitor_commits():
         print("🔄 Initializing repo list...")
         repos = await get_repos(session)
         print(f"📊 Found {len(repos)} repositories.")
+        
+        if not repos:
+            print("⚠️ No repositories found. Check GITHUB_TOKEN permissions.")
         
         # Get initial commit states
         init_results = await check_repo_batch(session, repos, last_known_commits)
@@ -138,25 +157,38 @@ async def monitor_commits():
         
         while True:
             try:
+                loop_start = asyncio.get_event_loop().time()
+                print(f"⏱️ Running check loop at {asyncio.get_event_loop().time()}...")
+                
                 repos = await get_repos(session)
-                new_commits = await check_repo_batch(session, repos, last_known_commits)
-                
-                for name, sha, message in new_commits:
-                    last_known_commits[name] = sha
+                if repos:
+                    new_commits = await check_repo_batch(session, repos, last_known_commits)
                     
-                    if message:  # Only notify if there's a message (not init)
-                        print(f"🆕 New commit in {name}: {message}")
-                        slack_msg = f"📦 *New Progress Detected in {name}*\n> {message}\n_Gemini CLI progression log updated._"
-                        await send_slack_message(session, slack_msg)
-                
-                # Non-blocking sleep - this is the key improvement
+                    found_new = False
+                    for name, sha, message in new_commits:
+                        last_known_commits[name] = sha
+                        
+                        if message:  # Only notify if there's a message (not init)
+                            found_new = True
+                            print(f"🆕 New commit in {name}: {message}")
+                            slack_msg = f"📦 *New Progress Detected in {name}*\n> {message}\n_Gemini CLI progression log updated._"
+                            await send_slack_message(session, slack_msg)
+                    
+                    if not found_new:
+                        print("😴 No new commits this cycle.")
+                else:
+                    print("⚠️ Repos list empty, skipping batch check.")
+
+                # Non-blocking sleep 
                 await asyncio.sleep(60)
                 
             except asyncio.CancelledError:
                 print("🛑 Monitor cancelled, shutting down gracefully...")
                 break
             except Exception as e:
-                print(f"❌ Error in monitor: {e}")
+                print(f"❌ Error in monitor loop: {e}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(30)  # Wait before retrying
 
 def run_monitor():
@@ -167,7 +199,4 @@ def run_monitor():
         print("\n🛑 GitHub Monitor stopped by user.")
 
 if __name__ == "__main__":
-    if not GITHUB_TOKEN:
-        print("❌ Error: GITHUB_TOKEN not found in .env")
-    else:
-        run_monitor()
+    run_monitor()

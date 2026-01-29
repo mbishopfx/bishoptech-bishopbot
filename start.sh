@@ -51,7 +51,7 @@ echo "🚀 BishopBot is active! Logs will appear below."
 echo "📌 Press Ctrl+C to stop ALL processes safely."
 echo "-------------------------------------------------------"
 
-# Wait for the worker to finish (it won't, until Ctrl+C)
-# caffeinate keeps the system from sleeping while the worker is active
-echo "☕ System sleep prevention active..."
-caffeinate -is wait $WORKER_PID
+# caffeinate keeps the system from sleep while the worker is active
+# The -w flag waits for the specific worker PID to exit
+echo "☕ System sleep prevention active for Worker PID: $WORKER_PID..."
+caffeinate -is -w $WORKER_PID
