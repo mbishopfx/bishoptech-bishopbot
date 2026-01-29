@@ -8,6 +8,7 @@ from rq import Worker, Queue, Connection, SimpleWorker
 from config import CONFIG
 from handlers import cli_handler, google_handler, research_handler
 from services.slack_service import send_delayed_message
+from services.terminal_session_manager import TerminalSessionManager
 
 def process_task(command, input_text, response_url, user_id):
     """
@@ -18,7 +19,8 @@ def process_task(command, input_text, response_url, user_id):
     
     try:
         if command == "/cli":
-            result = cli_handler.handle_cli_command(input_text, response_url=response_url)
+            # Pass user_id to handle_cli_command
+            result = cli_handler.handle_cli_command(input_text, response_url=response_url, user_id=user_id)
         elif command in ["/google", "/gmail", "/drive", "/calendar", "/meet"]:
             result = google_handler.handle_google_command(input_text, command=command)
         elif command == "/research":
@@ -26,20 +28,37 @@ def process_task(command, input_text, response_url, user_id):
         else:
             result = {"success": False, "error": "Unknown command"}
 
-        # Format message for Slack
-        if result["success"]:
-            msg = f"✅ *Success ({command})*\n```\n{result.get('output', 'Success')}\n```"
-        else:
-            msg = f"❌ *Error ({command})*\n{result.get('error', 'Unknown Error')}"
-        
-        # Send result back via response_url
-        send_delayed_message(response_url, msg)
+        # Format message for Slack if it's NOT a CLI command (CLI command handles its own feedback via sessions)
+        if command != "/cli":
+            if result["success"]:
+                msg = f"✅ *Success ({command})*\n```\n{result.get('output', 'Success')}\n```"
+            else:
+                msg = f"❌ *Error ({command})*\n{result.get('error', 'Unknown Error')}"
+            
+            # Send result back via response_url
+            send_delayed_message(response_url, msg)
+            
         print(f"✅ Finished {command}")
 
     except Exception as e:
         error_msg = f"💥 *Crash in Local Worker:* {str(e)}"
         send_delayed_message(response_url, error_msg)
         print(error_msg)
+
+def process_terminal_input(session_id, input_text, user_id, response_url):
+    """
+    Handles interactive terminal input from Slack buttons.
+    """
+    print(f"⌨️ Sending terminal input to session {session_id}: {input_text}")
+    
+    if input_text == "STOP":
+        success = TerminalSessionManager.close_session(session_id)
+        msg = f"🛑 *Gemini Session `{session_id}` Stopped* by <@{user_id}>"
+    else:
+        success = TerminalSessionManager.send_input(session_id, input_text)
+        msg = f"⌨️ Sent `{input_text}` to session `{session_id}`" if success else f"❌ Failed to send input to session `{session_id}`"
+
+    send_delayed_message(response_url, msg)
 
 if __name__ == '__main__':
     # Start the knowledge refresh in the background

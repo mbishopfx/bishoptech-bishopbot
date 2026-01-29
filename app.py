@@ -67,6 +67,40 @@ def google_handler(ack, body, say):
     ack()
     enqueue_task("/google", body, say)
 
+# --- Interactive Button Handlers ---
+
+@app.action("cli_input_enter")
+def handle_cli_enter(ack, body, say):
+    ack()
+    _enqueue_cli_input(body, "ENTER")
+
+@app.action("cli_input_no")
+def handle_cli_no(ack, body, say):
+    ack()
+    _enqueue_cli_input(body, "N")
+
+@app.action("cli_stop")
+def handle_cli_stop(ack, body, say):
+    ack()
+    _enqueue_cli_input(body, "STOP")
+
+def _enqueue_cli_input(body, input_type):
+    """Auxiliary to enqueue inputs from interactive buttons."""
+    # body["actions"][0]["value"] contains "session_id:TYPE"
+    full_value = body["actions"][0]["value"]
+    session_id, _ = full_value.split(":")
+    user_id = body["user"]["id"]
+    response_url = body["response_url"]
+    
+    # Push a special terminal input task to Redis
+    q.enqueue(
+        'local_worker.process_terminal_input',
+        session_id=session_id,
+        input_text=input_type,
+        user_id=user_id,
+        response_url=response_url
+    )
+
 if __name__ == "__main__":
     # Start the app using Socket Mode
     handler = SocketModeHandler(app, CONFIG["SLACK_APP_TOKEN"])
