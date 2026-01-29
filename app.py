@@ -7,6 +7,20 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from redis import Redis
 from rq import Queue
 from config import CONFIG
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_health_check():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"🏥 Health check server running on port {port}")
+    server.serve_forever()
 
 # Initialize Redis and Queue
 redis_conn = Redis.from_url(CONFIG["REDIS_URL"])
@@ -102,6 +116,9 @@ def _enqueue_cli_input(body, input_type):
     )
 
 if __name__ == "__main__":
+    # Start health check server for Railway
+    threading.Thread(target=run_health_check, daemon=True).start()
+    
     # Start the app using Socket Mode
     handler = SocketModeHandler(app, CONFIG["SLACK_APP_TOKEN"])
     handler.start()
