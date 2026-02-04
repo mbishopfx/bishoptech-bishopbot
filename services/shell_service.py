@@ -23,10 +23,14 @@ def start_terminal_session(cwd=None):
     if sys.platform == "darwin":
         try:
             # Open Terminal, start Gemini, and return the unique window ID
+            escaped_cwd = cwd.replace('"', '\\"')
+            cli_args = CONFIG.get("GEMINI_CLI_ARGS", "").strip()
+            gemini_command = f"gemini {cli_args}".strip()
+
             script = f'''
             tell application "Terminal"
                 activate
-                set newWin to do script "cd {cwd} && gemini"
+                set newWin to do script "cd {escaped_cwd} && {gemini_command}"
                 delay 1
                 return id of window 1
             end tell

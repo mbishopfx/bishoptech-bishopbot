@@ -13,7 +13,7 @@ SESSIONS = {}
 
 class TerminalSessionManager:
     @staticmethod
-    def start_session(user_id, response_url, initial_command):
+    def start_session(user_id, response_url, initial_command, plan_text="", tasks=None, agent_mode="gemini"):
         """Starts a new Gemini session in a terminal and kicks off monitoring."""
         session_id = str(uuid.uuid4())[:8]
         
@@ -40,6 +40,10 @@ class TerminalSessionManager:
             "start_time": time.time(),
             "last_poll_time": time.time()
         }
+        SESSIONS[session_id]["plan_text"] = plan_text
+        SESSIONS[session_id]["tasks"] = tasks or []
+        SESSIONS[session_id]["agent_mode"] = agent_mode
+        SESSIONS[session_id]["current_task_index"] = 0
         
         # 5. Start background polling thread
         thread = threading.Thread(
@@ -49,6 +53,10 @@ class TerminalSessionManager:
         )
         SESSIONS[session_id]["thread"] = thread
         thread.start()
+        
+        if plan_text:
+            plan_header = f"🧭 {agent_mode.capitalize()} plan for session `{session_id}`"
+            TerminalSessionManager.send_status_to_slack(session_id, plan_text, header_override=plan_header)
         
         return session_id
 
@@ -109,13 +117,13 @@ class TerminalSessionManager:
             return None
 
     @staticmethod
-    def send_status_to_slack(session_id, output, needs_input=False):
+    def send_status_to_slack(session_id, output, needs_input=False, header_override=None):
         """Sends a status update to Slack with optional interactive buttons."""
         session = SESSIONS.get(session_id)
         if not session:
             return
             
-        header = f"🤖 *Gemini Session `{session_id}` Status Update*"
+        header = header_override or f"🤖 *Gemini Session `{session_id}` Status Update*"
         if needs_input:
             header += " ⚠️ *ACTION REQUIRED*"
             

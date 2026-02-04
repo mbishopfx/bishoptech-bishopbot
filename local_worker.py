@@ -21,6 +21,8 @@ def process_task(command, input_text, response_url, user_id):
         if command == "/cli":
             # Pass user_id to handle_cli_command
             result = cli_handler.handle_cli_command(input_text, response_url=response_url, user_id=user_id)
+        elif command == "/codex":
+            result = cli_handler.handle_cli_command(input_text, response_url=response_url, user_id=user_id, mode="codex")
         elif command in ["/google", "/gmail", "/drive", "/calendar", "/meet"]:
             result = google_handler.handle_google_command(input_text, command=command)
         elif command == "/research":
@@ -29,7 +31,7 @@ def process_task(command, input_text, response_url, user_id):
             result = {"success": False, "error": "Unknown command"}
 
         # Format message for Slack if it's NOT a CLI command (CLI command handles its own feedback via sessions)
-        if command != "/cli":
+        if command not in ["/cli", "/codex"]:
             if result["success"]:
                 msg = f"✅ *Success ({command})*\n```\n{result.get('output', 'Success')}\n```"
             else:

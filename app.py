@@ -81,6 +81,11 @@ def google_handler(ack, body, say):
     ack()
     enqueue_task("/google", body, say)
 
+@app.command("/codex")
+def codex_handler(ack, body, say):
+    ack()
+    enqueue_task("/codex", body, say)
+
 # --- Interactive Button Handlers ---
 
 @app.action("cli_input_enter")

@@ -17,4 +17,5 @@ CONFIG = {
     "TASK_QUEUE_NAME": os.getenv("TASK_QUEUE_NAME", "bishopbot_tasks"),
     "GITHUB_TOKEN": os.getenv("GITHUB_TOKEN"),
     "SLACK_NOTIFICATIONS_CHANNEL": os.getenv("SLACK_NOTIFICATIONS_CHANNEL"),
+    "GEMINI_CLI_ARGS": os.getenv("GEMINI_CLI_ARGS", "--yolo"),
 }
