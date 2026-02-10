@@ -18,4 +18,19 @@ CONFIG = {
     "GITHUB_TOKEN": os.getenv("GITHUB_TOKEN"),
     "SLACK_NOTIFICATIONS_CHANNEL": os.getenv("SLACK_NOTIFICATIONS_CHANNEL"),
     "GEMINI_CLI_ARGS": os.getenv("GEMINI_CLI_ARGS", "--yolo"),
+    "GOOGLE_CLIENT_SECRETS_PATH": os.getenv("GOOGLE_CLIENT_SECRETS_PATH", "client_secrets.json"),
+
+    # Terminal session tuning
+    "TERMINAL_BOOT_DELAY_SECONDS": os.getenv("TERMINAL_BOOT_DELAY_SECONDS", "7"),
+    "TERMINAL_POLL_INTERVAL_SECONDS": os.getenv("TERMINAL_POLL_INTERVAL_SECONDS", "40"),
+    "TERMINAL_TAIL_LINES_SLACK": os.getenv("TERMINAL_TAIL_LINES_SLACK", "15"),
+    "TERMINAL_TAIL_LINES_WHATSAPP": os.getenv("TERMINAL_TAIL_LINES_WHATSAPP", "40"),
+
+    # WhatsApp Cloud API (Meta)
+    "WHATSAPP_ENABLED": os.getenv("WHATSAPP_ENABLED", "false"),
+    "WHATSAPP_VERIFY_TOKEN": os.getenv("WHATSAPP_VERIFY_TOKEN"),
+    "WHATSAPP_ACCESS_TOKEN": os.getenv("WHATSAPP_ACCESS_TOKEN"),
+    "WHATSAPP_PHONE_NUMBER_ID": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
+    # Optional: webhook signature verification (X-Hub-Signature-256)
+    "WHATSAPP_APP_SECRET": os.getenv("WHATSAPP_APP_SECRET"),
 }

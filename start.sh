@@ -34,9 +34,9 @@ echo "-------------------------------------------------------"
 # Clear any accidental keystrokes from the buffer
 read -t 1 -n 10000 discard
 
-read -p "❓ Start Slack Listener (app.py) locally? [y/N] " run_app
+read -p "❓ Start Listener (app.py: Slack Socket Mode + HTTP gateway/WhatsApp) locally? [y/N] " run_app
 if [[ "$run_app" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-    echo "📡 Starting Local Slack Listener..."
+    echo "📡 Starting Local Listener..."
     python3 app.py &
 fi
 

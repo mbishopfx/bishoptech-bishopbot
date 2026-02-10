@@ -7,7 +7,7 @@ from redis import Redis
 from rq import Worker, Queue, Connection, SimpleWorker
 from config import CONFIG
 from handlers import cli_handler, google_handler, research_handler
-from services.slack_service import send_delayed_message
+from services.reply_service import send as send_delayed_message
 from services.terminal_session_manager import TerminalSessionManager
 
 def process_task(command, input_text, response_url, user_id):
@@ -53,6 +53,12 @@ def process_terminal_input(session_id, input_text, user_id, response_url):
     """
     print(f"⌨️ Sending terminal input to session {session_id}: {input_text}")
     
+    if input_text == "STATUS":
+        snap = TerminalSessionManager.snapshot(session_id)
+        msg = f"📟 Session `{session_id}` status:\n```\n{snap or '(no output)'}\n```"
+        send_delayed_message(response_url, msg)
+        return
+
     if input_text == "STOP":
         success = TerminalSessionManager.close_session(session_id)
         msg = f"🛑 *Gemini Session `{session_id}` Stopped* by <@{user_id}>"

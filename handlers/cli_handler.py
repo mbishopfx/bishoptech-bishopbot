@@ -1,5 +1,5 @@
 import time
-from services import openai_service, shell_service, git_service, slack_service
+from services import openai_service, shell_service, git_service, reply_service
 from services.task_planner import TaskPlanner
 from services.terminal_session_manager import TerminalSessionManager
 from utils import logger
@@ -19,9 +19,10 @@ def handle_cli_command(input_text, response_url=None, user_id=None, mode="gemini
         # 2. Inform Slack Gemini is starting
         if response_url:
             summary = TaskPlanner.build_plan_summary(tasks, mode=mode)
-            slack_service.send_delayed_message(
+            who = f"<@{user_id}>" if not reply_service.is_whatsapp_target(response_url) else str(user_id)
+            reply_service.send(
                 response_url, 
-                f"🚀 *{mode.capitalize()} automation starting for <@{user_id}>...*\n{summary}"
+                f"🚀 *{mode.capitalize()} automation starting for {who}...*\n{summary}"
             )
 
         initial_command = TaskPlanner.build_cli_prompt(refined_input, tasks, mode=mode)

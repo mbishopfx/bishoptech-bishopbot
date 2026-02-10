@@ -4,7 +4,7 @@ import time
 import uuid
 import threading
 import subprocess
-from services import shell_service, slack_service
+from services import shell_service, reply_service, session_link_service
 from config import CONFIG
 
 # Global dictionary to track active sessions
@@ -25,7 +25,11 @@ class TerminalSessionManager:
             return None
 
         # 2. Wait for Gemini to initialize
-        time.sleep(10)
+        try:
+            boot_delay = int(str(CONFIG.get("TERMINAL_BOOT_DELAY_SECONDS", "7")))
+        except Exception:
+            boot_delay = 7
+        time.sleep(max(0, boot_delay))
         
         # 3. Send initial command
         shell_service.send_input_to_terminal(initial_command, window_id=window_id)
@@ -44,6 +48,10 @@ class TerminalSessionManager:
         SESSIONS[session_id]["tasks"] = tasks or []
         SESSIONS[session_id]["agent_mode"] = agent_mode
         SESSIONS[session_id]["current_task_index"] = 0
+
+        # Keep a per-user "last session" pointer (used by WhatsApp controls like !enter).
+        if user_id and session_id:
+            session_link_service.set_last_session(str(user_id), session_id)
         
         # 5. Start background polling thread
         thread = threading.Thread(
@@ -66,7 +74,10 @@ class TerminalSessionManager:
         print(f"🧵 Polling thread started for session {session_id}")
         
         timeout = 1800  # 30 minutes
-        poll_interval = 40  # 40 seconds
+        try:
+            poll_interval = int(str(CONFIG.get("TERMINAL_POLL_INTERVAL_SECONDS", "40")))
+        except Exception:
+            poll_interval = 40
         
         while session_id in SESSIONS and SESSIONS[session_id]["active"]:
             session = SESSIONS[session_id]
@@ -78,7 +89,10 @@ class TerminalSessionManager:
                 break
             
             # Capture output
-            current_output = TerminalSessionManager.get_terminal_contents(session["window_id"])
+            current_output = TerminalSessionManager.get_terminal_contents(
+                session["window_id"],
+                tail_lines=TerminalSessionManager._tail_lines_for_target(session.get("response_url")),
+            )
             
             # If output has changed significantly, or every few polls, report to Slack
             if current_output and current_output != session["last_output"]:
@@ -89,12 +103,21 @@ class TerminalSessionManager:
                 session["last_output"] = current_output
                 session["last_poll_time"] = time.time()
             
-            time.sleep(poll_interval)
+            time.sleep(max(5, poll_interval))
         
         print(f"🧵 Polling thread exiting for session {session_id}")
 
     @staticmethod
-    def get_terminal_contents(window_id):
+    def _tail_lines_for_target(target):
+        try:
+            if reply_service.is_whatsapp_target(target):
+                return int(str(CONFIG.get("TERMINAL_TAIL_LINES_WHATSAPP", "40")))
+            return int(str(CONFIG.get("TERMINAL_TAIL_LINES_SLACK", "15")))
+        except Exception:
+            return 15
+
+    @staticmethod
+    def get_terminal_contents(window_id, tail_lines=15):
         """Uses AppleScript to get the current visible text in the terminal window."""
         if sys.platform != "darwin":
             return "Terminal capture only supported on macOS"
@@ -105,11 +128,11 @@ class TerminalSessionManager:
             result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
             full_text = result.stdout.strip()
             
-            # Usually we only want the last ~15 lines to show progress without flooding Slack
+            # Tail output to avoid flooding chat.
             lines = full_text.splitlines()
-            if len(lines) > 15:
-                # Filter out empty lines at the end
-                last_lines = [line for line in lines[-15:] if line.strip()]
+            if tail_lines and len(lines) > tail_lines:
+                # Filter out empty lines at the end.
+                last_lines = [line for line in lines[-tail_lines:] if line.strip()]
                 return "\n".join(last_lines)
             return full_text
         except Exception as e:
@@ -118,7 +141,7 @@ class TerminalSessionManager:
 
     @staticmethod
     def send_status_to_slack(session_id, output, needs_input=False, header_override=None):
-        """Sends a status update to Slack with optional interactive buttons."""
+        """Sends a status update to Slack (response_url) or WhatsApp (whatsapp:<wa_id>)."""
         session = SESSIONS.get(session_id)
         if not session:
             return
@@ -129,6 +152,14 @@ class TerminalSessionManager:
             
         # Format the output in a code block
         formatted_output = f"```\n{output}\n```"
+
+        target = session.get("response_url")
+        if reply_service.is_whatsapp_target(target):
+            msg = f"{header}\n{formatted_output}"
+            if needs_input:
+                msg += f"\n\nControls: !enter {session_id} | !n {session_id} | !y {session_id} | !stop {session_id}"
+            reply_service.send(target, msg)
+            return
         
         blocks = [
             {
@@ -168,7 +199,7 @@ class TerminalSessionManager:
                 ]
             })
             
-        slack_service.send_delayed_message(session["response_url"], header, blocks=blocks)
+        reply_service.send(target, header, blocks=blocks)
 
     @staticmethod
     def send_input(session_id, input_text):
@@ -186,6 +217,17 @@ class TerminalSessionManager:
             return shell_service.send_input_to_terminal("y", window_id=session["window_id"])
         else:
             return shell_service.send_input_to_terminal(input_text, window_id=session["window_id"])
+
+    @staticmethod
+    def snapshot(session_id):
+        """Capture current tailed output for a session (useful for manual status requests)."""
+        session = SESSIONS.get(session_id)
+        if not session or not session.get("active"):
+            return None
+        return TerminalSessionManager.get_terminal_contents(
+            session["window_id"],
+            tail_lines=TerminalSessionManager._tail_lines_for_target(session.get("response_url")),
+        )
 
     @staticmethod
     def close_session(session_id):
