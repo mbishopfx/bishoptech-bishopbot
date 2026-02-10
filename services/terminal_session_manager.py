@@ -123,8 +123,21 @@ class TerminalSessionManager:
             return "Terminal capture only supported on macOS"
             
         try:
-            # Get the text contents of the specific window
-            script = f'tell application "Terminal" to get contents of window id {window_id}'
+            # Get the text contents of the specific window.
+            # Guard against stale window ids (Terminal can recycle/close windows).
+            script = f'''
+            tell application "Terminal"
+                if exists (window id {window_id}) then
+                    try
+                        return contents of selected tab of (window id {window_id})
+                    on error
+                        return contents of (window id {window_id})
+                    end try
+                else
+                    return ""
+                end if
+            end tell
+            '''
             result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
             full_text = result.stdout.strip()
             

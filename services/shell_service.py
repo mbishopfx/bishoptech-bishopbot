@@ -30,9 +30,13 @@ def start_terminal_session(cwd=None):
             script = f'''
             tell application "Terminal"
                 activate
-                set newWin to do script "cd {escaped_cwd} && {gemini_command}"
+                set newTab to do script "cd {escaped_cwd} && {gemini_command}"
                 delay 1
-                return id of window 1
+                try
+                    return id of (window of newTab)
+                on error
+                    return id of front window
+                end try
             end tell
             '''
             result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
@@ -58,13 +62,18 @@ def send_input_to_terminal(input_text, window_id=None):
             # This is the most reliable way to handle nested quotes in AppleScript
             escaped_input = input_text.replace('"', '" & quote & "')
             
-            # Target the specific window ID we captured earlier
-            target = f"window id {window_id}" if window_id else "window 1"
+            # Target the specific window ID we captured earlier.
+            # If the window no longer exists, fall back to front window.
+            target = f"window id {window_id}" if window_id else "front window"
             
             script = f'''
             tell application "Terminal"
                 activate
-                set index of {target} to 1
+                try
+                    set index of {target} to 1
+                on error
+                    set index of front window to 1
+                end try
             end tell
             delay 0.5
             tell application "System Events"
