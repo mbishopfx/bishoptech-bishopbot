@@ -28,6 +28,7 @@ CONFIG = {
 
     # WhatsApp Cloud API (Meta)
     "WHATSAPP_ENABLED": os.getenv("WHATSAPP_ENABLED", "false"),
+    "WHATSAPP_DEBUG": os.getenv("WHATSAPP_DEBUG", "false"),
     "WHATSAPP_VERIFY_TOKEN": os.getenv("WHATSAPP_VERIFY_TOKEN"),
     "WHATSAPP_ACCESS_TOKEN": os.getenv("WHATSAPP_ACCESS_TOKEN"),
     "WHATSAPP_PHONE_NUMBER_ID": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),

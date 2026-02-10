@@ -2,6 +2,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 from bishop_meta.whatsapp_webhook import WhatsAppWebhook
+from config import CONFIG
 
 
 class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
@@ -29,6 +30,11 @@ class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
             # parse_qs gives lists
             flat = {k: (v[0] if isinstance(v, list) and v else "") for k, v in query.items()}
             status, body = self.webhook.verify_get(flat)
+            if str(CONFIG.get("WHATSAPP_DEBUG", "false")).lower() == "true":
+                mode = flat.get("hub.mode", "")
+                has_token = bool(flat.get("hub.verify_token"))
+                has_challenge = bool(flat.get("hub.challenge"))
+                print(f"WA_WEBHOOK GET mode={mode} token={has_token} challenge={has_challenge} -> {status}")
             self._send(status, body)
             return
 
@@ -45,6 +51,9 @@ class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
         headers = {k: v for k, v in self.headers.items()}
 
         status, body = self.webhook.handle_post(raw_body, headers)
+        if str(CONFIG.get("WHATSAPP_DEBUG", "false")).lower() == "true":
+            sig_present = bool(headers.get("x-hub-signature-256") or headers.get("X-Hub-Signature-256"))
+            print(f"WA_WEBHOOK POST bytes={len(raw_body)} sig={sig_present} -> {status}")
         self._send(status, body)
 
     def log_message(self, fmt, *args):
