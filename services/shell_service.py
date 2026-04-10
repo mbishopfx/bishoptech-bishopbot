@@ -43,12 +43,19 @@ def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, laun
                 launch_mode=launch_mode,
                 state_file=state_file,
                 output_file=output_file,
-            ).replace('"', '\\"')
+            )
+
+            # We use single quotes for the 'osascript -e' wrapper,
+            # so we must escape any single quotes in the AppleScript itself.
+            # But here we are building the AppleScript string which will contain 
+            # the launch_command inside double quotes. 
+            # We need to escape double quotes inside launch_command.
+            escaped_launch = launch_command.replace('"', '\\"')
 
             script = f'''
             tell application "Terminal"
                 activate
-                set newTab to do script "{launch_command}"
+                set newTab to do script "{escaped_launch}"
                 delay 2
                 try
                     -- Try to get the window ID associated with the new tab

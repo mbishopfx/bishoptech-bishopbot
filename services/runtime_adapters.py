@@ -135,78 +135,61 @@ class RuntimeAdapter:
         output_file: Optional[str] = None,
     ) -> str:
         quoted_cwd = shlex.quote(cwd)
-        label = shlex.quote(f"[{self.label}] starting in {self.prompt_style_label(launch_mode)}...")
+        label = f"[{self.label}] starting in {self.prompt_style_label(launch_mode)}..."
         command_parts = self.command_parts(launch_mode=launch_mode)
+        
+        # If transport is 'argv', we include the prompt as an argument.
+        # We use '--prompt' if it's Gemini to be safe, otherwise just append.
         if initial_prompt and self.prompt_transport(launch_mode=launch_mode) == "argv":
-            command_parts = [*command_parts, initial_prompt]
-        launch = shlex.join(command_parts)
-
-        command_segments: list[str] = []
-        quoted_output_file = None
-        if output_file:
-            quoted_output_file = shlex.quote(output_file)
-            quoted_output_dir = shlex.quote(str(Path(output_file).parent))
-            command_segments.extend([
-                f"mkdir -p {quoted_output_dir}",
-                f": > {quoted_output_file}",
-            ])
-        if state_file:
-            quoted_state_file = shlex.quote(state_file)
-            quoted_state_dir = shlex.quote(str(Path(state_file).parent))
-            resolved_mode = launch_mode or self.default_launch_mode or "default"
-            heartbeat_seconds = max(1, int(str(CONFIG.get("TERMINAL_STATE_HEARTBEAT_SECONDS", "3") or "3")))
-            command_segments.extend([
-                f"mkdir -p {quoted_state_dir}",
-                (
-                    f"printf 'status=running\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nstarted_at=%s\\nheartbeat_at=%s\\n' "
-                    '"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > '
-                    f"{quoted_state_file}"
-                ),
-                (
-                    "(while true; do "
-                    f"printf 'status=running\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nheartbeat_at=%s\\n' "
-                    '"$(date -u +%Y-%m-%dT%H:%M:%SZ)" > '
-                    f"{quoted_state_file}; sleep {heartbeat_seconds}; done) & HEARTBEAT_PID=$!"
-                ),
-            ])
-            trap_body = (
-                f"EXIT_CODE=$?; if [ -n \"$HEARTBEAT_PID\" ]; then kill \"$HEARTBEAT_PID\" 2>/dev/null || true; wait \"$HEARTBEAT_PID\" 2>/dev/null || true; fi; "
-                f"printf 'status=exited\\nexit_code=%s\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nexited_at=%s\\n' \"$EXIT_CODE\" \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > {quoted_state_file}; "
-            )
-            if quoted_output_file:
-                trap_body += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\" | tee -a {quoted_output_file}; "
+            if self.key == "gemini":
+                command_parts.extend(["--prompt", initial_prompt])
             else:
-                trap_body += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\"; "
-            trap_handler = shlex.quote(trap_body.strip())
-            command_segments.append(f"trap {trap_handler} EXIT")
+                command_parts.append(initial_prompt)
+        
+        launch_cmd = shlex.join(command_parts)
 
-        command_segments.extend([
-            f"cd {quoted_cwd}",
-        ])
+        # Build segments
+        segments = [f"cd {quoted_cwd}"]
+        
+        if output_file:
+            segments.append(f"mkdir -p {shlex.quote(str(Path(output_file).parent))}")
+            segments.append(f": > {shlex.quote(output_file)}")
 
-        if quoted_output_file:
-            pipeline_body = "; ".join([
-                f"printf '%s\\n' {label}",
-                launch,
-            ])
-            command_segments.extend([
-                f"{{ {pipeline_body}; }} 2>&1 | tee -a {quoted_output_file}",
-                "EXIT_CODE=${pipestatus[1]}",
-                "exit $EXIT_CODE",
-            ])
-            wrapped_command = "; ".join(command_segments)
-            return wrapped_command
+        if state_file:
+            q_state = shlex.quote(state_file)
+            segments.append(f"mkdir -p {shlex.quote(str(Path(state_file).parent))}")
+            resolved_mode = launch_mode or self.default_launch_mode or "default"
+            now = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            
+            # Initial state
+            segments.append(f"printf 'status=running\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nstarted_at={now}\\nheartbeat_at={now}\\n' > {q_state}")
+            
+            # Heartbeat background loop
+            heartbeat_seconds = max(1, int(str(CONFIG.get("TERMINAL_STATE_HEARTBEAT_SECONDS", "3") or "3")))
+            hb_loop = f"while true; do printf 'status=running\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nheartbeat_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\\n' > {q_state}; sleep {heartbeat_seconds}; done"
+            segments.append(f"({hb_loop}) & HEARTBEAT_PID=$!")
+            
+            # Trap for cleanup and final state
+            trap_cmd = (
+                f"EXIT_CODE=$?; [ -n \"$HEARTBEAT_PID\" ] && kill \"$HEARTBEAT_PID\" 2>/dev/null; "
+                f"printf 'status=exited\\nexit_code=%s\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nexited_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\\n' \"$EXIT_CODE\" > {q_state}; "
+            )
+            if output_file:
+                trap_cmd += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\" | tee -a {shlex.quote(output_file)}; "
+            else:
+                trap_cmd += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\"; "
+            
+            segments.append(f"trap {shlex.quote(trap_cmd.strip())} EXIT")
 
-        command_segments.extend([
-            f"printf '%s\\n' {label}",
-            launch,
-        ])
-        command = "; ".join(command_segments)
-        if not state_file and self.prompt_transport(launch_mode=launch_mode) == "argv":
-            marker = shlex.quote(self.exit_marker_prefix)
-            runtime = shlex.quote(self.key)
-            command = f"{command}; EXIT_CODE=$?; printf '%s:%s:%s\\n' {marker} {runtime} \"$EXIT_CODE\""
-        return command
+        segments.append(f"echo {shlex.quote(label)}")
+        
+        # Execution with optional output capture
+        if output_file:
+            segments.append(f"{{ {launch_cmd}; }} 2>&1 | tee -a {shlex.quote(output_file)}")
+        else:
+            segments.append(launch_cmd)
+
+        return " ; ".join(segments)
 
     def build_initial_prompt(self, refined_instruction: str, tasks: Optional[List[str]] = None) -> str:
         task_lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks or []))
@@ -425,7 +408,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
                 label="YOLO",
                 cli_args_config_key="GEMINI_CLI_ARGS_YOLO",
                 default_cli_args="--yolo",
-                prompt_transport="stdin",
+                prompt_transport="argv",
                 prompt_style="YOLO automation mode",
                 aliases=("shell",),
             ),
@@ -435,7 +418,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
             "Execute the plan sequentially, narrate progress briefly, and do not stop for confirmation unless the terminal itself blocks."
         ),
         prompt_transport_config_key="GEMINI_PROMPT_TRANSPORT",
-        default_prompt_transport="stdin",
+        default_prompt_transport="argv",
         attention_tokens=("proceed?", "continue?", "y/n", "confirm", "press enter", "allow"),
         completion_tokens=("session complete",),
         error_tokens=("error", "failed", "traceback", "permission denied"),
