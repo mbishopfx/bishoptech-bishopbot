@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from services import openai_service
 from services.runtime_adapters import get_runtime_adapter

@@ -95,14 +95,18 @@ def _status(ok: bool) -> str:
 def doctor() -> int:
     env_values = read_env_values()
     detected = detect_paths()
+    python_ok = sys.version_info >= (3, 10)
     rows = [
         ("project_root", True, str(PROJECT_ROOT)),
         (".env", ENV_PATH.exists(), str(ENV_PATH)),
         ("manifest.json", MANIFEST_PATH.exists(), str(MANIFEST_PATH)),
         ("python_venv", VENV_PYTHON.exists(), str(VENV_PYTHON)),
+        ("python_runtime", python_ok, sys.version.split()[0]),
         ("gemini_cli", shutil.which("gemini") is not None, shutil.which("gemini") or "not found"),
         ("codex_cli", shutil.which("codex") is not None, shutil.which("codex") or "not found"),
         ("redis_server", shutil.which("redis-server") is not None, shutil.which("redis-server") or "not found"),
+        ("node", shutil.which("node") is not None, shutil.which("node") or "not found"),
+        ("npm", shutil.which("npm") is not None, shutil.which("npm") or "not found"),
     ]
 
     for key in ("HERMES_HOME", "OPENCLAW_HOME", "SHARED_SKILLS_DIR", "GEMINI_SKILLS_DIR"):
@@ -123,11 +127,11 @@ def doctor() -> int:
     if not env_values.get("SLACK_BOT_TOKEN"):
         print("- Fill Slack tokens in .env")
     print(f"- Import or update Slack manifest from {MANIFEST_PATH}")
-    print("- Install dependencies: `python3 -m venv .venv && ./.venv/bin/pip install -r requirements_local.txt`")
+    print("- Install or repair the full local stack with `./install.sh`")
     print("- Start the full local stack with `./start.sh`")
     print("- Dashboard will be served at http://localhost:3113 unless BISHOP_DASHBOARD_PORT overrides it")
 
-    critical_ok = all(ok for _, ok, _ in rows[:4])
+    critical_ok = all(ok for _, ok, _ in rows[:5])
     return 0 if critical_ok else 1
 
 
@@ -142,12 +146,11 @@ def print_next_steps() -> int:
             [
                 "BISHOP quickstart:",
                 "1. Clone the repo.",
-                "2. Create a venv and install `requirements_local.txt`.",
-                "3. Run `./scripts/bishop_onboard.py init-env`.",
-                "4. Fill Slack tokens and any optional API keys in `.env`.",
-                "5. Import `manifest.json` into your Slack app and reinstall it.",
-                "6. Start the full local stack with `./start.sh`.",
-                "7. Open the dashboard at http://localhost:3113.",
+                "2. Run `./install.sh`.",
+                "3. Fill Slack tokens and any optional API keys in `.env`.",
+                "4. Import `manifest.json` into your Slack app and reinstall it.",
+                "5. Start the full local stack with `./start.sh`.",
+                "6. Open the dashboard at http://localhost:3113.",
             ]
         )
     )

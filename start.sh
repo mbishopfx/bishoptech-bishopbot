@@ -8,10 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 VENV_PY="$SCRIPT_DIR/.venv/bin/python"
-PYTHON_BIN="python3"
-if [[ -x "$VENV_PY" ]]; then
-    PYTHON_BIN="$VENV_PY"
-fi
+PYTHON_BIN="$VENV_PY"
 
 DASHBOARD_DIR="$SCRIPT_DIR/upscrolled-pulse"
 DASHBOARD_PORT="${BISHOP_DASHBOARD_PORT:-}"
@@ -22,9 +19,11 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-3113}"
 START_LISTENER=1
 START_DASHBOARD=1
 START_MONITOR=0
-AUTO_INSTALL_UI=1
+AUTO_BOOTSTRAP=1
 PIDS=()
 CLEANED_UP=0
+APP_PORT="${PORT:-8080}"
+LAST_PID=""
 
 usage() {
     cat <<EOF
@@ -37,7 +36,7 @@ Options:
   --no-listener     Start worker only, skip app.py
   --no-ui           Skip the Next.js dashboard
   --with-monitor    Also start github_monitor_worker.py
-  --no-ui-install   Do not auto-run npm install when node_modules is missing
+  --skip-install    Do not auto-run ./install.sh --ensure before startup
   --port <port>     Override dashboard port (default: 3113)
   --help            Show this help
 
@@ -59,8 +58,8 @@ while [[ $# -gt 0 ]]; do
         --with-monitor)
             START_MONITOR=1
             ;;
-        --no-ui-install)
-            AUTO_INSTALL_UI=0
+        --skip-install)
+            AUTO_BOOTSTRAP=0
             ;;
         --port)
             shift
@@ -97,12 +96,70 @@ require_cmd() {
     fi
 }
 
+require_http() {
+    local url="$1"
+    local label="$2"
+    local attempts="${3:-10}"
+    local delay_seconds="${4:-1}"
+
+    for _ in $(seq 1 "$attempts"); do
+        if curl -fsS "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep "$delay_seconds"
+    done
+
+    echo "$label did not become healthy at $url" >&2
+    return 1
+}
+
+port_in_use() {
+    local port="$1"
+    python3 - "$port" <<'PY' >/dev/null 2>&1
+import socket
+import sys
+
+port = int(sys.argv[1])
+sock = socket.socket()
+try:
+    sock.bind(("127.0.0.1", port))
+except OSError:
+    raise SystemExit(0)
+finally:
+    sock.close()
+raise SystemExit(1)
+PY
+}
+
+require_port_free() {
+    local port="$1"
+    local label="$2"
+    if port_in_use "$port"; then
+        echo "$label port $port is already in use." >&2
+        if command -v lsof >/dev/null 2>&1; then
+            echo "Process using port $port:" >&2
+            lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
+        fi
+        exit 1
+    fi
+}
+
+require_alive() {
+    local pid="$1"
+    local label="$2"
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+        echo "$label exited immediately. Check the logs above." >&2
+        exit 1
+    fi
+}
+
 start_process() {
     local label="$1"
     shift
     log "▶ $label"
     "$@" &
     local pid=$!
+    LAST_PID="$pid"
     PIDS+=("$pid")
     log "  pid=$pid"
 }
@@ -126,30 +183,39 @@ cleanup() {
 trap cleanup EXIT SIGINT SIGTERM
 
 log "🤖 Starting BISHOP local stack..."
+if [[ "$AUTO_BOOTSTRAP" -eq 1 ]]; then
+    log "🧰 Ensuring local dependencies..."
+    bash "$SCRIPT_DIR/install.sh" --ensure
+fi
+
+require_cmd "$PYTHON_BIN" "Run ./install.sh to create a compatible local environment."
+require_cmd curl "curl is required for local health checks."
 log "🐍 Python: $PYTHON_BIN"
 
-require_cmd "$PYTHON_BIN" "Create the project venv with: python3 -m venv .venv && ./.venv/bin/pip install -r requirements_local.txt"
+"$PYTHON_BIN" - <<'PY' >/dev/null
+import app
+import local_worker
+PY
 
+if [[ "$START_LISTENER" -eq 1 ]]; then
+    require_port_free "$APP_PORT" "Python API"
+fi
 if [[ "$START_DASHBOARD" -eq 1 ]]; then
-    require_cmd npm "Install Node.js and npm to run the dashboard."
-    if [[ ! -d "$DASHBOARD_DIR/node_modules" ]]; then
-        if [[ "$AUTO_INSTALL_UI" -eq 1 ]]; then
-            log "📦 Dashboard dependencies missing, running npm install..."
-            (cd "$DASHBOARD_DIR" && npm install)
-        else
-            echo "Dashboard dependencies are missing at $DASHBOARD_DIR/node_modules" >&2
-            echo "Run: cd $DASHBOARD_DIR && npm install" >&2
-            exit 1
-        fi
-    fi
+    require_port_free "$DASHBOARD_PORT" "Dashboard UI"
 fi
 
 start_process "Local worker" "$PYTHON_BIN" local_worker.py
 sleep 2
+WORKER_PID="$LAST_PID"
+require_alive "$WORKER_PID" "Local worker"
 
 if [[ "$START_LISTENER" -eq 1 ]]; then
     start_process "Slack listener + HTTP gateway" "$PYTHON_BIN" app.py
-    sleep 1
+    sleep 2
+    LISTENER_PID="$LAST_PID"
+    require_alive "$LISTENER_PID" "Slack listener + HTTP gateway"
+    require_http "http://127.0.0.1:$APP_PORT/" "Python API" 12 1
+    require_alive "$LISTENER_PID" "Slack listener + HTTP gateway"
 fi
 
 if [[ "$START_MONITOR" -eq 1 ]]; then
@@ -158,6 +224,10 @@ fi
 
 if [[ "$START_DASHBOARD" -eq 1 ]]; then
     start_process "Dashboard UI on http://localhost:$DASHBOARD_PORT" bash -lc "cd '$DASHBOARD_DIR' && PORT='$DASHBOARD_PORT' npm run dev"
+    DASHBOARD_PID="$LAST_PID"
+    require_alive "$DASHBOARD_PID" "Dashboard UI"
+    require_http "http://127.0.0.1:$DASHBOARD_PORT/" "Dashboard UI" 20 1
+    require_alive "$DASHBOARD_PID" "Dashboard UI"
 fi
 
 echo ""

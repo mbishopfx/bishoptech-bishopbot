@@ -20,13 +20,15 @@ It proxies requests to the Python HTTP server at `/api/dashboard/*`, and that se
 From the repo root, make sure the Python side is running:
 
 ```bash
-./.venv/bin/python local_worker.py
-./.venv/bin/python app.py
+./install.sh
+./start.sh
 ```
 
-Then start the dashboard:
+If you want to run only the dashboard side manually:
 
 ```bash
+./.venv/bin/python local_worker.py
+./.venv/bin/python app.py
 cd upscrolled-pulse
 cp .env.example .env.local
 npm install

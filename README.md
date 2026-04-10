@@ -42,14 +42,23 @@ git clone <repo-url>
 cd BishopBot
 ```
 
-### 2. Create a virtual environment
+### 2. Install the local stack
 
 ```bash
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements_local.txt
+./install.sh
 ```
 
-### 3. Generate a starter `.env`
+`./install.sh` is the one-shot bootstrap command. It will:
+
+- install missing local system dependencies with Homebrew when possible (`python@3.11`, `node`, `redis`)
+- rebuild `.venv` with a compatible Python if your current venv is too old
+- install Python dependencies from `requirements_local.txt`
+- install dashboard dependencies in `upscrolled-pulse`
+- create `.env` and `upscrolled-pulse/.env.local` from templates when missing
+- start Redis if it is installed but not running
+- run import and dashboard build smoke checks
+
+### 3. Generate or inspect `.env`
 
 ```bash
 ./scripts/bishop_onboard.py init-env
@@ -122,7 +131,7 @@ The master command is now:
 ./start.sh
 ```
 
-That starts the local worker, the Slack listener / local HTTP API, and the dashboard UI in one shot.
+`./start.sh` now runs `./install.sh --ensure` first by default, then starts the local worker, the Slack listener / local HTTP API, and the dashboard UI in one shot. If any core process crashes on boot, `start.sh` exits with the real failure instead of pretending the stack is healthy.
 
 Default local endpoints:
 
@@ -272,10 +281,7 @@ That keeps BISHOP thin and cheap while still making it operationally aware of yo
 ```bash
 git clone <repo-url>
 cd BishopBot
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements_local.txt
-./scripts/bishop_onboard.py init-env
-./scripts/bishop_onboard.py doctor
+./install.sh
 ./start.sh
 ```
 
