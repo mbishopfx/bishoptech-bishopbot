@@ -139,7 +139,6 @@ class RuntimeAdapter:
         command_parts = self.command_parts(launch_mode=launch_mode)
         
         # If transport is 'argv', we include the prompt as an argument.
-        # We use '--prompt' if it's Gemini to be safe, otherwise just append.
         if initial_prompt and self.prompt_transport(launch_mode=launch_mode) == "argv":
             if self.key == "gemini":
                 command_parts.extend(["--prompt", initial_prompt])
@@ -159,27 +158,45 @@ class RuntimeAdapter:
             q_state = shlex.quote(state_file)
             segments.append(f"mkdir -p {shlex.quote(str(Path(state_file).parent))}")
             resolved_mode = launch_mode or self.default_launch_mode or "default"
-            now = "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             
-            # Initial state
-            segments.append(f"printf 'status=running\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nstarted_at={now}\\nheartbeat_at={now}\\n' > {q_state}")
+            # Use echo instead of printf to avoid %Y issues
+            initial_state = (
+                f"echo 'status=running' > {q_state} ; "
+                f"echo 'runtime={self.key}' >> {q_state} ; "
+                f"echo 'launch_mode={resolved_mode}' >> {q_state} ; "
+                f"echo \"started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\" >> {q_state} ; "
+                f"echo \"heartbeat_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\" >> {q_state}"
+            )
+            segments.append(initial_state)
             
-            # Heartbeat background loop
+            # Heartbeat background loop using echo
             heartbeat_seconds = max(1, int(str(CONFIG.get("TERMINAL_STATE_HEARTBEAT_SECONDS", "3") or "3")))
-            hb_loop = f"while true; do printf 'status=running\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nheartbeat_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\\n' > {q_state}; sleep {heartbeat_seconds}; done"
+            hb_loop = (
+                f"while true; do "
+                f"echo 'status=running' > {q_state} ; "
+                f"echo 'runtime={self.key}' >> {q_state} ; "
+                f"echo 'launch_mode={resolved_mode}' >> {q_state} ; "
+                f"echo \"heartbeat_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\" >> {q_state} ; "
+                f"sleep {heartbeat_seconds} ; "
+                f"done"
+            )
             segments.append(f"({hb_loop}) & HEARTBEAT_PID=$!")
             
             # Trap for cleanup and final state
-            trap_cmd = (
+            trap_body = (
                 f"EXIT_CODE=$?; [ -n \"$HEARTBEAT_PID\" ] && kill \"$HEARTBEAT_PID\" 2>/dev/null; "
-                f"printf 'status=exited\\nexit_code=%s\\nruntime={self.key}\\nlaunch_mode={resolved_mode}\\nexited_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\\n' \"$EXIT_CODE\" > {q_state}; "
+                f"echo 'status=exited' > {q_state} ; "
+                f"echo \"exit_code=$EXIT_CODE\" >> {q_state} ; "
+                f"echo 'runtime={self.key}' >> {q_state} ; "
+                f"echo 'launch_mode={resolved_mode}' >> {q_state} ; "
+                f"echo \"exited_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\" >> {q_state} ; "
             )
             if output_file:
-                trap_cmd += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\" | tee -a {shlex.quote(output_file)}; "
+                trap_body += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\" | tee -a {shlex.quote(output_file)}; "
             else:
-                trap_cmd += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\"; "
+                trap_body += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\"; "
             
-            segments.append(f"trap {shlex.quote(trap_cmd.strip())} EXIT")
+            segments.append(f"trap {shlex.quote(trap_body.strip())} EXIT")
 
         segments.append(f"echo {shlex.quote(label)}")
         
@@ -408,7 +425,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
                 label="YOLO",
                 cli_args_config_key="GEMINI_CLI_ARGS_YOLO",
                 default_cli_args="--yolo",
-                prompt_transport="argv",
+                prompt_transport="stdin",
                 prompt_style="YOLO automation mode",
                 aliases=("shell",),
             ),
@@ -418,7 +435,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
             "Execute the plan sequentially, narrate progress briefly, and do not stop for confirmation unless the terminal itself blocks."
         ),
         prompt_transport_config_key="GEMINI_PROMPT_TRANSPORT",
-        default_prompt_transport="argv",
+        default_prompt_transport="stdin",
         attention_tokens=("proceed?", "continue?", "y/n", "confirm", "press enter", "allow"),
         completion_tokens=("session complete",),
         error_tokens=("error", "failed", "traceback", "permission denied"),
