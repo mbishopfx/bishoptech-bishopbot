@@ -64,6 +64,7 @@ class RuntimeAdapter:
     enter_button_label: str = "✅ Yes / Enter"
     no_button_label: str = "❌ No"
     exit_marker_prefix: str = "__BISHOPBOT_RUNTIME_EXIT__"
+    ready_tokens: tuple[str, ...] = field(default_factory=tuple)
 
     def available_launch_modes(self) -> dict[str, RuntimeLaunchMode]:
         modes = {}
@@ -304,6 +305,14 @@ class RuntimeAdapter:
         haystack = self._normalized_output(output)
         return any(token.lower() in haystack for token in self.completion_tokens)
 
+    def detect_ready(self, output: Optional[str], launch_mode: Optional[str] = None) -> bool:
+        if self.prompt_transport(launch_mode=launch_mode) != "stdin":
+            return True
+        haystack = self._normalized_output(output)
+        if not haystack:
+            return False
+        return any(token.lower() in haystack for token in self.ready_tokens)
+
     def detect_error(self, output: str) -> bool:
         exit_code = self.extract_exit_code(output)
         if exit_code is not None:
@@ -477,6 +486,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
         attention_tokens=("proceed?", "continue?", "y/n", "confirm", "press enter", "allow"),
         completion_tokens=("session complete",),
         error_tokens=("error", "failed", "traceback", "permission denied"),
+        ready_tokens=("gemini cli v", "signed in with google", "plan:", "extensions update"),
         enter_button_label="✅ Confirm / Enter",
     ),
     "codex": RuntimeAdapter(
@@ -518,6 +528,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
         attention_tokens=("proceed?", "continue?", "y/n", "confirm", "press enter", "approval", "allow"),
         completion_tokens=("session complete",),
         error_tokens=("error", "failed", "traceback", "permission denied"),
+        ready_tokens=("session id:", "approval:", "sandbox:", "reasoning effort:"),
         ignored_error_patterns=(
             r"failed to stat skills entry",
             r"failed to load skill",

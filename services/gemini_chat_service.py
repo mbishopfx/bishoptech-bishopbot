@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from typing import Optional
 
 import requests
@@ -100,6 +102,71 @@ def _generate_via_gemini(text: str, *, user_id: Optional[str] = None) -> str:
     return output.strip()
 
 
+def _gemini_cli_binary() -> Optional[str]:
+    return shutil.which("gemini")
+
+
+def _build_cli_prompt(text: str, *, user_id: Optional[str] = None) -> str:
+    return (
+        f"{build_system_prompt()}\n\n"
+        f"User message:\n{_normalize_prompt(text, user_id=user_id)}\n\n"
+        "Reply as the lightweight Slack brainstorming assistant. "
+        "Do not claim code execution or tool execution."
+    )
+
+
+def _clean_cli_output(output: str) -> str:
+    lines = []
+    for raw_line in (output or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines.append("")
+            continue
+        lower_line = line.lower()
+        if lower_line.startswith("skill conflict detected:"):
+            continue
+        if lower_line.startswith('skill "') and "overriding" in lower_line:
+            continue
+        if lower_line.startswith("loaded cached credentials"):
+            continue
+        lines.append(line)
+
+    cleaned = "\n".join(lines).strip()
+    while "\n\n\n" in cleaned:
+        cleaned = cleaned.replace("\n\n\n", "\n\n")
+    return cleaned.strip()
+
+
+def _generate_via_gemini_cli(text: str, *, user_id: Optional[str] = None) -> str:
+    binary = _gemini_cli_binary()
+    if not binary:
+        raise RuntimeError("Gemini CLI is not installed")
+
+    result = subprocess.run(
+        [
+            binary,
+            "--approval-mode",
+            "plan",
+            "-m",
+            _configured_model(),
+            "-p",
+            _build_cli_prompt(text, user_id=user_id),
+        ],
+        cwd=CONFIG.get("PROJECT_ROOT_DIR") or None,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    if result.returncode != 0:
+        error_text = _clean_cli_output(result.stderr or result.stdout)
+        raise RuntimeError(error_text or f"Gemini CLI exited with code {result.returncode}")
+
+    output = _clean_cli_output(result.stdout)
+    if not output:
+        raise RuntimeError("Gemini CLI returned an empty response")
+    return output
+
+
 def _generate_via_openai_fallback(text: str, *, user_id: Optional[str] = None) -> str:
     if not CONFIG.get("OPENAI_API_KEY"):
         raise RuntimeError("OpenAI fallback is not configured")
@@ -116,17 +183,35 @@ def generate_chat_reply(text: str, *, user_id: Optional[str] = None) -> str:
     if not is_configured() and not CONFIG.get("OPENAI_API_KEY"):
         raise RuntimeError("Neither GEMINI_API_KEY nor OPENAI_API_KEY is configured")
 
+    gemini_api_error = None
     if is_configured():
         try:
             output = _generate_via_gemini(text, user_id=user_id)
             if output:
                 return output
         except Exception as exc:
-            if CONFIG.get("OPENAI_API_KEY"):
-                fallback = _generate_via_openai_fallback(text, user_id=user_id)
-                if fallback:
-                    return f"_Gemini was unavailable, so this reply used the OpenAI fallback._\n\n{fallback}"
-            raise RuntimeError(f"Gemini mention chat failed: {exc}") from exc
+            gemini_api_error = exc
 
-    fallback = _generate_via_openai_fallback(text, user_id=user_id)
-    return fallback or "I do not have a response yet. Use /cli or /codex if you want me to execute work."
+    try:
+        cli_output = _generate_via_gemini_cli(text, user_id=user_id)
+        if cli_output:
+            if gemini_api_error is not None:
+                return f"_Gemini Studio API was unavailable, so this reply used the signed-in local Gemini CLI._\n\n{cli_output}"
+            return cli_output
+    except Exception:
+        pass
+
+    if CONFIG.get("OPENAI_API_KEY"):
+        try:
+            fallback = _generate_via_openai_fallback(text, user_id=user_id)
+            if fallback:
+                if gemini_api_error is not None:
+                    return f"_Gemini was unavailable, so this reply used the OpenAI fallback._\n\n{fallback}"
+                return fallback
+        except Exception:
+            pass
+
+    raise RuntimeError(
+        "Gemini mention chat is unavailable for the current API key or Google project, "
+        "and no local fallback succeeded. Use /cli or /codex for terminal execution."
+    ) from gemini_api_error

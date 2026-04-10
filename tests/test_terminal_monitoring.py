@@ -453,9 +453,10 @@ class TerminalMonitoringTests(unittest.TestCase):
     @patch("services.terminal_session_manager.threading.Thread")
     @patch("services.terminal_session_manager.shell_service.get_terminal_tty")
     @patch("services.terminal_session_manager.shell_service.send_input_to_terminal")
+    @patch("services.terminal_session_manager.TerminalSessionManager._wait_for_runtime_ready", return_value=True)
     @patch("services.terminal_session_manager.time.sleep")
     @patch("services.terminal_session_manager.shell_service.start_terminal_session")
-    def test_start_session_waits_and_injects_prompt_for_stdin_launches(self, mock_start_terminal, mock_sleep, mock_send_input, mock_get_tty, mock_thread):
+    def test_start_session_waits_and_injects_prompt_for_stdin_launches(self, mock_start_terminal, mock_sleep, mock_wait_ready, mock_send_input, mock_get_tty, mock_thread):
         mock_start_terminal.return_value = "456"
         mock_get_tty.return_value = "/dev/ttys456"
         thread_instance = MagicMock()
@@ -483,9 +484,11 @@ class TerminalMonitoringTests(unittest.TestCase):
 
         self.assertIsNotNone(session_id)
         self.assertEqual(mock_sleep.call_count, 2)
-        self.assertEqual(mock_sleep.call_args_list[0].args[0], 10)
+        self.assertEqual(mock_sleep.call_args_list[0].args[0], 2)
         self.assertEqual(mock_sleep.call_args_list[1].args[0], 5)
         self.assertEqual(mock_send_input.call_count, 3)
+        mock_wait_ready.assert_called_once()
+        self.assertEqual(mock_wait_ready.call_args.kwargs["window_id"], "456")
         first_call = mock_send_input.call_args_list[0]
         second_call = mock_send_input.call_args_list[1]
         third_call = mock_send_input.call_args_list[2]
@@ -507,6 +510,40 @@ class TerminalMonitoringTests(unittest.TestCase):
         self.assertIsNone(kwargs["initial_prompt"])
         self.assertIsNone(kwargs["state_file"])
         self.assertIsNone(kwargs["output_file"])
+
+    @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
+    @patch("services.terminal_session_manager.time.sleep")
+    @patch("services.terminal_session_manager.session_output_service.read_output_file")
+    def test_wait_for_runtime_ready_detects_gemini_banner_tokens(self, mock_read_output, mock_sleep, mock_snapshot):
+        adapter = TerminalSessionManager
+        runtime_adapter = __import__("services.runtime_adapters", fromlist=["get_runtime_adapter"]).get_runtime_adapter("gemini")
+        mock_snapshot.return_value = MagicMock(contents="", exists=True, busy=True)
+        mock_read_output.side_effect = [
+            "",
+            "[Gemini] starting in YOLO automation mode...",
+            "Gemini CLI v0.37.1\nSigned in with Google /auth\n",
+        ]
+
+        ready = adapter._wait_for_runtime_ready(runtime_adapter, "/tmp/fake.log", launch_mode="yolo", window_id="123")
+
+        self.assertTrue(ready)
+        self.assertGreaterEqual(mock_read_output.call_count, 2)
+
+    @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
+    @patch("services.terminal_session_manager.time.sleep")
+    @patch("services.terminal_session_manager.session_output_service.read_output_file")
+    def test_wait_for_runtime_ready_uses_live_terminal_snapshot_when_log_lags(self, mock_read_output, mock_sleep, mock_snapshot):
+        adapter = TerminalSessionManager
+        runtime_adapter = __import__("services.runtime_adapters", fromlist=["get_runtime_adapter"]).get_runtime_adapter("gemini")
+        mock_read_output.return_value = "[Gemini] starting in YOLO automation mode..."
+        mock_snapshot.side_effect = [
+            MagicMock(contents="", exists=True, busy=True),
+            MagicMock(contents="Gemini CLI v0.37.1\nPlan: Google AI Ultra for Business\n", exists=True, busy=True),
+        ]
+
+        ready = adapter._wait_for_runtime_ready(runtime_adapter, "/tmp/fake.log", launch_mode="yolo", window_id="123")
+
+        self.assertTrue(ready)
 
     def test_runtime_state_heartbeat_freshness_helper(self):
         fresh = {"heartbeat_at": "2099-01-01T00:00:00Z"}

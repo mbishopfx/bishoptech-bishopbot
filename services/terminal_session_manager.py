@@ -15,6 +15,30 @@ class TerminalSessionManager:
     SESSIONS = SESSIONS
 
     @staticmethod
+    def _wait_for_runtime_ready(adapter, output_path, launch_mode=None, window_id=None):
+        try:
+            max_wait = max(0, int(str(CONFIG.get("TERMINAL_READY_WAIT_SECONDS", "25") or "25")))
+        except Exception:
+            max_wait = 25
+        if max_wait == 0:
+            return False
+
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            output = session_output_service.read_output_file(output_path)
+            snapshot_contents = ""
+            if window_id:
+                snapshot = shell_service.get_terminal_snapshot(window_id)
+                snapshot_contents = TerminalSessionManager._sanitize_snapshot_output(snapshot.contents)
+            combined_output = "\n".join(part for part in [output, snapshot_contents] if part)
+            if adapter.detect_ready(combined_output, launch_mode=launch_mode):
+                return True
+            if adapter.extract_exit_code(combined_output) is not None:
+                return False
+            time.sleep(0.5)
+        return False
+
+    @staticmethod
     def start_session(
         user_id,
         response_url,
@@ -90,7 +114,17 @@ class TerminalSessionManager:
         # and delaying polling risks missing the real terminal lifecycle entirely.
         if prompt_transport == "stdin":
             shell_service.send_input_to_terminal(runtime_bootstrap_command, window_id=window_id)
-            time.sleep(max(0, boot_delay))
+            time.sleep(max(0, min(boot_delay, 2)))
+            ready = TerminalSessionManager._wait_for_runtime_ready(
+                adapter,
+                output_path,
+                launch_mode=effective_launch_mode,
+                window_id=window_id,
+            )
+            if not ready:
+                remaining_boot_delay = max(0, boot_delay - 2)
+                if remaining_boot_delay:
+                    time.sleep(remaining_boot_delay)
             submitted = shell_service.send_input_to_terminal(initial_command, window_id=window_id, tty_path=tty_path, submit=False)
             if submitted:
                 time.sleep(prompt_enter_delay)
@@ -120,6 +154,7 @@ class TerminalSessionManager:
             "prompt_transport": prompt_transport,
             "boot_delay_seconds": boot_delay,
             "prompt_enter_delay_seconds": prompt_enter_delay,
+            "ready_wait_seconds": CONFIG.get("TERMINAL_READY_WAIT_SECONDS", "25"),
             "runtime_metadata": adapter_meta,
             "state_path": state_path,
             "output_path": output_path,
