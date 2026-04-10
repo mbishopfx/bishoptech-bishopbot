@@ -9,6 +9,7 @@ import threading
 from http.server import HTTPServer
 from bishop_meta.http_handler import UnifiedHealthAndWhatsAppHandler
 from services import gemini_chat_service, session_link_service, slack_service
+from utils.cli_branding import print_bishop_banner
 
 def _start_slack_socket_mode():
     """
@@ -206,6 +207,7 @@ def _start_slack_socket_mode():
     SocketModeHandler(app, slack_app_token).start()
 
 if __name__ == "__main__":
+    print_bishop_banner("gateway", "slack socket mode + http api")
     # Start Slack (optional) in a background thread so HTTP stays as the main server process.
     threading.Thread(target=_start_slack_socket_mode, daemon=True).start()
 

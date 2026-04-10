@@ -9,6 +9,7 @@ from config import CONFIG
 from handlers import cli_handler, google_handler, research_handler
 from services.reply_service import send as send_delayed_message
 from services.terminal_session_manager import TerminalSessionManager
+from utils.cli_branding import print_bishop_banner
 
 def process_task(command, input_text, response_url, user_id):
     """
@@ -83,6 +84,7 @@ def process_terminal_input(session_id, input_text, user_id, response_url, send_a
         send_delayed_message(reply_target, msg)
 
 if __name__ == '__main__':
+    print_bishop_banner("local worker", "redis queue execution")
     # Start the knowledge refresh in the background
     import threading
     from refresh_knowledge import refresh_loop

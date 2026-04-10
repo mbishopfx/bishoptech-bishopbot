@@ -25,6 +25,16 @@ CLEANED_UP=0
 APP_PORT="${PORT:-8080}"
 LAST_PID=""
 
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    BISHOP_NEON=$'\033[38;5;118m'
+    BISHOP_STEEL=$'\033[38;5;245m'
+    BISHOP_RESET=$'\033[0m'
+else
+    BISHOP_NEON=''
+    BISHOP_STEEL=''
+    BISHOP_RESET=''
+fi
+
 usage() {
     cat <<EOF
 BISHOP master launcher
@@ -84,6 +94,16 @@ done
 
 log() {
     printf '%s\n' "$1"
+}
+
+print_banner() {
+    printf '%b\n' "${BISHOP_NEON}██████╗ ██╗███████╗██╗  ██╗ ██████╗ ██████╗ ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██╔══██╗██║██╔════╝██║  ██║██╔═══██╗██╔══██╗${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██████╔╝██║███████╗███████║██║   ██║██████╔╝${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██╔══██╗██║╚════██║██╔══██║██║   ██║██╔═══╝ ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██████╔╝██║███████║██║  ██║╚██████╔╝██║     ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}╚═════╝ ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_STEEL}LOCAL STACK · worker · slack · dashboard${BISHOP_RESET}"
 }
 
 require_cmd() {
@@ -171,7 +191,7 @@ cleanup() {
     CLEANED_UP=1
 
     echo ""
-    log "🛑 Shutting down BISHOP..."
+    log "Shutting down BISHOP..."
     for pid in "${PIDS[@]:-}"; do
         if kill -0 "$pid" >/dev/null 2>&1; then
             kill "$pid" >/dev/null 2>&1 || true
@@ -182,15 +202,16 @@ cleanup() {
 
 trap cleanup EXIT SIGINT SIGTERM
 
-log "🤖 Starting BISHOP local stack..."
+print_banner
+log "Starting BISHOP local stack..."
 if [[ "$AUTO_BOOTSTRAP" -eq 1 ]]; then
-    log "🧰 Ensuring local dependencies..."
+    log "Ensuring local dependencies..."
     bash "$SCRIPT_DIR/install.sh" --ensure
 fi
 
 require_cmd "$PYTHON_BIN" "Run ./install.sh to create a compatible local environment."
 require_cmd curl "curl is required for local health checks."
-log "🐍 Python: $PYTHON_BIN"
+log "Python: $PYTHON_BIN"
 
 "$PYTHON_BIN" - <<'PY' >/dev/null
 import app

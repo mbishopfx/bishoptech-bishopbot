@@ -15,6 +15,16 @@ ENSURE_ONLY=0
 PIP_INSTALL_ARGS=()
 NPM_INSTALL_ARGS=()
 
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    BISHOP_NEON=$'\033[38;5;118m'
+    BISHOP_STEEL=$'\033[38;5;245m'
+    BISHOP_RESET=$'\033[0m'
+else
+    BISHOP_NEON=''
+    BISHOP_STEEL=''
+    BISHOP_RESET=''
+fi
+
 usage() {
     cat <<EOF
 BISHOP installer
@@ -57,6 +67,16 @@ fi
 
 log() {
     printf '%s\n' "$1"
+}
+
+print_banner() {
+    printf '%b\n' "${BISHOP_NEON}██████╗ ██╗███████╗██╗  ██╗ ██████╗ ██████╗ ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██╔══██╗██║██╔════╝██║  ██║██╔═══██╗██╔══██╗${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██████╔╝██║███████╗███████║██║   ██║██████╔╝${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██╔══██╗██║╚════██║██╔══██║██║   ██║██╔═══╝ ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}██████╔╝██║███████║██║  ██║╚██████╔╝██║     ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_NEON}╚═════╝ ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ${BISHOP_RESET}"
+    printf '%b\n' "${BISHOP_STEEL}INSTALLER · local deps · redis · dashboard${BISHOP_RESET}"
 }
 
 have_cmd() {
@@ -208,7 +228,8 @@ PY
     (cd "$UI_DIR" && npm run build >/dev/null)
 }
 
-log "🔧 Installing BISHOP local dependencies..."
+print_banner
+log "Installing BISHOP local dependencies..."
 ensure_homebrew_pkg redis-server redis
 ensure_python_env
 ensure_node_env
