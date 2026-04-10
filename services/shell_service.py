@@ -132,45 +132,37 @@ def get_terminal_snapshot(window_id=None):
 
 
 def send_input_to_terminal(input_text, window_id=None):
-    """Uses System Events to paste input into a SPECIFIC Terminal window."""
+    """Uses Terminal's native 'do script' to send input to a SPECIFIC window."""
     if sys.platform == "darwin":
         try:
-            # Put the text into the clipboard
-            process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
-            process.communicate(input=input_text.encode('utf-8'))
+            # Escape double quotes for AppleScript string
+            escaped_input = input_text.replace('"', '\\"')
             
             # Target the specific window ID we captured earlier.
             target = f"window id {window_id}" if window_id else "front window"
             
-            # AppleScript to focus window and paste
+            # AppleScript to focus window and send text
             script = f'''
             tell application "Terminal"
                 activate
                 try
                     if exists ({target}) then
-                        set index of {target} to 1
+                        do script "{escaped_input}" in {target}
                     else
-                        set index of front window to 1
+                        do script "{escaped_input}" in front window
                     end if
-                on error
-                    set index of front window to 1
+                on error err
+                    return err
                 end try
             end tell
-            delay 0.5
-            tell application "System Events"
-                tell process "Terminal"
-                    -- Paste from clipboard
-                    keystroke "v" using {{command down}}
-                    delay 0.2
-                    -- Press Return
-                    key code 36
-                end tell
-            end tell
             '''
-            subprocess.run(["osascript", "-e", script], check=True)
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Error sending to terminal (exit {result.returncode}): {result.stderr.strip()}")
+                return False
             return True
         except Exception as e:
-            print(f"Error sending to terminal: {e}")
+            print(f"Exception sending to terminal: {e}")
             return False
     return False
 
