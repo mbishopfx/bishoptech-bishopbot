@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BISHOP Dashboard
 
-## Getting Started
+This app is the local dashboard for BISHOP.
 
-First, run the development server:
+It is a Next.js control surface that mirrors the same worker flow used by Slack:
+
+- queue `/cli` and `/codex` jobs
+- inspect recent sessions and live output tails
+- send follow-up input into active terminal sessions
+- browse durable memory, logs, and indexed resource paths
+
+## How it fits
+
+The UI does not launch terminals directly.
+
+It proxies requests to the Python HTTP server at `/api/dashboard/*`, and that server enqueues the same RQ jobs the Slack listener uses. That keeps one execution path for both Slack and dashboard traffic.
+
+## Local development
+
+From the repo root, make sure the Python side is running:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+./.venv/bin/python local_worker.py
+./.venv/bin/python app.py
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then start the dashboard:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cd upscrolled-pulse
+cp .env.example .env.local
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Learn More
+## Environment
 
-To learn more about Next.js, take a look at the following resources:
+`upscrolled-pulse/.env.local` supports:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+BISHOP_DASHBOARD_API_URL=http://127.0.0.1:8080
+BISHOP_DASHBOARD_API_TOKEN=
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Leave `BISHOP_DASHBOARD_API_TOKEN` empty when the dashboard talks to a localhost API. Set it only when the UI needs to proxy to a non-local backend protected by the same `DASHBOARD_API_TOKEN` value in the root `.env`.
 
-## Deploy on Vercel
+## Design goals
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- dark, local-operator UI instead of generic SaaS chrome
+- read-heavy session inspection with fast follow-up control
+- zero divergence from the Slack execution model
+- durable-state awareness through SQLite, session logs, and session state sidecars

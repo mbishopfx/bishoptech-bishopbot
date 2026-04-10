@@ -29,6 +29,7 @@ Compared with heavier agent platforms, BISHOP is:
 - `services/terminal_session_manager.py`: runtime lifecycle, polling, Slack updates, and status recovery.
 - `services/runtime_adapters.py`: Gemini/Codex launch behavior and prompt construction.
 - `services/agent_context_service.py`: durable context, seeded resource index, and SQLite session memory.
+- `services/dashboard_service.py`: dashboard read models plus queue-backed command and follow-up input dispatch.
 - `scripts/agent_memory.py`: helper CLI for reading and writing BISHOP memory.
 - `scripts/bishop_onboard.py`: onboarding and environment doctor CLI.
 
@@ -37,8 +38,8 @@ Compared with heavier agent platforms, BISHOP is:
 ### 1. Clone
 
 ```bash
-git clone https://github.com/mbishopfx/bishoptech-bishopbot.git
-cd bishoptech-bishopbot
+git clone <repo-url>
+cd BishopBot
 ```
 
 ### 2. Create a virtual environment
@@ -130,6 +131,31 @@ You can also run the parts manually:
 ./.venv/bin/python app.py
 ```
 
+### 8. Start the dashboard
+
+The dashboard lives under `upscrolled-pulse/`. It is a Next.js control surface that proxies into the local Python API and uses the same Redis/RQ worker path as Slack.
+
+```bash
+cd upscrolled-pulse
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+By default the UI expects the Python API at `http://127.0.0.1:8080`.
+
+If the UI and API are not both local, set a shared token in both places:
+
+```bash
+# root .env
+DASHBOARD_API_TOKEN=choose-a-secret
+
+# upscrolled-pulse/.env.local
+BISHOP_DASHBOARD_API_TOKEN=choose-a-secret
+```
+
+Open [http://localhost:3000](http://localhost:3000) to use the dashboard.
+
 ## launchd option
 
 To run the local worker automatically on macOS login:
@@ -173,6 +199,17 @@ Session behavior:
 2. That message becomes the session thread root.
 3. All later output stays in that thread.
 4. If you reply in the thread, your reply is sent into the active terminal session.
+
+## Dashboard usage
+
+The dashboard mirrors the same local-first operator flow as Slack rather than bypassing it.
+
+- Trigger `/cli` and `/codex` through the same queue and local worker Slack uses.
+- Inspect recent sessions, live output tails, log excerpts, and final summaries.
+- Send follow-up input into active sessions from the UI.
+- Browse durable memory, path inventory, and resource locations for Hermes, OpenClaw, session logs, and the SQLite store.
+
+This keeps the control plane crisp: one worker path, one session model, one durable state layer.
 
 ## Persistent context and memory
 
@@ -229,7 +266,7 @@ That keeps BISHOP thin and cheap while still making it operationally aware of yo
 
 ```bash
 git clone <repo-url>
-cd bishoptech-bishopbot
+cd BishopBot
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements_local.txt
 ./scripts/bishop_onboard.py init-env

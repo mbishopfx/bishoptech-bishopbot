@@ -15,6 +15,10 @@ class TerminalSnapshot:
     busy: bool
     contents: str = ""
 
+
+def _config_truthy(key, default="false"):
+    return str(CONFIG.get(key, default) or default).strip().lower() in {"1", "true", "yes", "on"}
+
 def run(code, cwd=None):
     if cwd is None:
         cwd = CONFIG["PROJECT_ROOT_DIR"]
@@ -54,10 +58,11 @@ def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, laun
             # the launch_command inside double quotes. 
             # We need to escape double quotes inside launch_command.
             escaped_launch = launch_command.replace('"', '\\"')
+            activate_line = "activate" if _config_truthy("TERMINAL_ACTIVATE_ON_LAUNCH") else ""
 
             script = f'''
             tell application "Terminal"
-                activate
+                {activate_line}
                 set newTab to do script "{escaped_launch}"
                 delay 2
                 try
@@ -150,26 +155,34 @@ def send_input_to_terminal(input_text, window_id=None):
             
             # Target the specific window ID we captured earlier.
             target = f"window id {window_id}" if window_id else "front window"
-            
-            # Simple, direct AppleScript: focus, type text, return.
-            script = f'''
-            tell application "Terminal"
-                activate
-                try
-                    if exists ({target}) then
-                        set frontmost of {target} to true
-                    end if
-                end try
-            end tell
-            delay 0.3
-            tell application "System Events"
-                tell process "Terminal"
-                    keystroke "{escaped_input}"
-                    delay 0.1
-                    key code 36 -- Return key
+            if _config_truthy("TERMINAL_ACTIVATE_ON_INPUT"):
+                script = f'''
+                tell application "Terminal"
+                    activate
+                    try
+                        if exists ({target}) then
+                            set frontmost of {target} to true
+                        end if
+                    end try
                 end tell
-            end tell
-            '''
+                delay 0.3
+                tell application "System Events"
+                    tell process "Terminal"
+                        keystroke "{escaped_input}"
+                        delay 0.1
+                        key code 36 -- Return key
+                    end tell
+                end tell
+                '''
+            else:
+                script = f'''
+                tell application "Terminal"
+                    if exists ({target}) then
+                        do script "{escaped_input}" in selected tab of {target}
+                        return "ok"
+                    end if
+                end tell
+                '''
             result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
             if result.returncode != 0:
                 print(f"Error sending to terminal (exit {result.returncode}): {result.stderr.strip()}")

@@ -1,8 +1,10 @@
 import urllib.parse
+import json
 from http.server import BaseHTTPRequestHandler
 
 from bishop_meta.whatsapp_webhook import WhatsAppWebhook
 from config import CONFIG
+from services import dashboard_service
 
 
 class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
@@ -15,15 +17,60 @@ class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
 
     webhook = WhatsAppWebhook()
 
-    def _send(self, status: int, body: str, content_type: str = "text/plain"):
-        b = (body or "").encode("utf-8")
+    def _send(self, status: int, body: str | bytes, content_type: str = "text/plain"):
+        if isinstance(body, bytes):
+            b = body
+        else:
+            b = (body or "").encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)
 
+    def _send_json(self, status: int, payload):
+        self._send(status, dashboard_service.json_bytes(payload), "application/json")
+
+    def _dashboard_allowed(self) -> bool:
+        token = str(CONFIG.get("DASHBOARD_API_TOKEN", "") or "").strip()
+        if token:
+            return (self.headers.get("X-Bishop-Dashboard-Token") or "").strip() == token
+        client_ip = (self.client_address or ("", 0))[0]
+        return client_ip in {"127.0.0.1", "::1"}
+
+    def _dashboard_path_parts(self) -> list[str]:
+        parsed = urllib.parse.urlparse(self.path)
+        return [part for part in parsed.path.split("/") if part][2:]
+
     def do_GET(self):
+        if self.path.startswith("/api/dashboard"):
+            if not self._dashboard_allowed():
+                self._send_json(403, {"error": "Dashboard API is restricted to localhost or a valid token."})
+                return
+
+            parts = self._dashboard_path_parts()
+            if not parts or parts == ["overview"]:
+                self._send_json(200, dashboard_service.overview())
+                return
+            if parts == ["sessions"]:
+                self._send_json(200, {"sessions": dashboard_service.list_sessions()})
+                return
+            if len(parts) == 2 and parts[0] == "sessions":
+                session = dashboard_service.get_session(parts[1])
+                if not session:
+                    self._send_json(404, {"error": "Session not found"})
+                    return
+                self._send_json(200, session)
+                return
+            if parts == ["resources"]:
+                self._send_json(200, {"resources": dashboard_service.list_resources()})
+                return
+            if parts == ["notes"]:
+                self._send_json(200, {"notes": dashboard_service.list_notes()})
+                return
+            self._send_json(404, {"error": "Not found"})
+            return
+
         if self.path.startswith("/whatsapp/webhook"):
             parsed = urllib.parse.urlparse(self.path)
             query = urllib.parse.parse_qs(parsed.query)
@@ -42,6 +89,44 @@ class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
         self._send(200, "OK")
 
     def do_POST(self):
+        if self.path.startswith("/api/dashboard"):
+            if not self._dashboard_allowed():
+                self._send_json(403, {"error": "Dashboard API is restricted to localhost or a valid token."})
+                return
+
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_body = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw_body.decode("utf-8") or "{}")
+            except Exception:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+
+            parts = self._dashboard_path_parts()
+            try:
+                if parts == ["commands"]:
+                    result = dashboard_service.enqueue_dashboard_command(
+                        str(payload.get("command") or "/cli"),
+                        str(payload.get("text") or ""),
+                        str(payload.get("runtime_mode") or "").strip() or None,
+                    )
+                    self._send_json(202, result)
+                    return
+
+                if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "input":
+                    result = dashboard_service.enqueue_session_input(parts[1], str(payload.get("text") or ""))
+                    self._send_json(202, result)
+                    return
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            except RuntimeError as exc:
+                self._send_json(503, {"error": str(exc)})
+                return
+
+            self._send_json(404, {"error": "Not found"})
+            return
+
         if not self.path.startswith("/whatsapp/webhook"):
             self._send(404, "Not Found")
             return

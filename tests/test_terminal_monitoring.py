@@ -350,6 +350,37 @@ class TerminalMonitoringTests(unittest.TestCase):
             TerminalSnapshot(window_id="123", exists=True, busy=True, contents="first line\nsecond line\nthird line"),
         )
 
+    @patch("services.shell_service.subprocess.run")
+    @patch("services.shell_service.sys.platform", "darwin")
+    def test_start_terminal_session_does_not_activate_terminal_by_default(self, mock_run):
+        from services import shell_service
+
+        mock_run.return_value = MagicMock(stdout="123\n")
+
+        with patch.dict(CONFIG, {"TERMINAL_ACTIVATE_ON_LAUNCH": "false"}, clear=False):
+            window_id = shell_service.start_terminal_session(runtime="gemini", startup_command="echo hi")
+
+        self.assertEqual(window_id, "123")
+        script = mock_run.call_args.args[0][2]
+        self.assertNotIn("activate", script)
+        self.assertIn('set newTab to do script "echo hi"', script)
+
+    @patch("services.shell_service.subprocess.run")
+    @patch("services.shell_service.sys.platform", "darwin")
+    def test_send_input_uses_background_do_script_by_default(self, mock_run):
+        from services import shell_service
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+
+        with patch.dict(CONFIG, {"TERMINAL_ACTIVATE_ON_INPUT": "false"}, clear=False):
+            ok = shell_service.send_input_to_terminal("hello world", window_id="123")
+
+        self.assertTrue(ok)
+        script = mock_run.call_args.args[0][2]
+        self.assertIn('do script "hello world" in selected tab of window id 123', script)
+        self.assertNotIn("System Events", script)
+        self.assertNotIn("activate", script)
+
     @patch("services.terminal_session_manager.threading.Thread")
     @patch("services.terminal_session_manager.shell_service.send_input_to_terminal")
     @patch("services.terminal_session_manager.time.sleep")
