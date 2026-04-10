@@ -1,28 +1,61 @@
-# BISHOP
+<p align="center">
+  <img src="docs/assets/logo.png" alt="BISHOP logo" width="460" />
+</p>
 
-BISHOP is a local-first operator platform for terminal-native AI work.
+<h1 align="center">BISHOP</h1>
 
-It turns Slack and a dashboard into a control plane for real Gemini and Codex CLI sessions, while keeping execution on your machine, preserving visible terminal state, and layering in durable memory, queueing, and environment awareness. It is intentionally lighter than full hosted agent platforms: smaller control plane, lower runtime cost, clearer execution model.
+<p align="center">
+  <strong>Local-first operator platform for terminal-native AI work.</strong>
+</p>
 
-For a team-facing overview of what BISHOP is, what powers it has, and how the system fits together, see [docs/BISHOP_SYSTEM.md](/Users/matthewbishop/BishopBot/docs/BISHOP_SYSTEM.md).
+<p align="center">
+  Slack + Dashboard + Gemini/Codex CLIs + Durable local memory + MCP-aware context
+</p>
 
-Additional team docs:
+<p align="center">
+  <a href="#quickstart"><strong>Quickstart</strong></a>
+  ·
+  <a href="docs/BISHOP_SYSTEM.md"><strong>System Brief</strong></a>
+  ·
+  <a href="docs/BISHOP_USE_CASES.md"><strong>Use Cases</strong></a>
+  ·
+  <a href="docs/GEMINI_MCP_PROJECTS.md"><strong>Gemini + MCP Docs</strong></a>
+</p>
 
-- [docs/BISHOP_USE_CASES.md](/Users/matthewbishop/BishopBot/docs/BISHOP_USE_CASES.md)
-- [docs/GEMINI_MCP_PROJECTS.md](/Users/matthewbishop/BishopBot/docs/GEMINI_MCP_PROJECTS.md)
+<p align="center">
+  <code>@BISHOP</code> for brainstorming
+  ·
+  <code>/cli</code> for Gemini execution
+  ·
+  <code>/codex</code> for Codex execution
+  ·
+  <code>localhost:3113</code> for dashboard control
+</p>
 
-MCP tooling:
+---
 
-- `./scripts/bishop_mcp.py init`
-- `./scripts/bishop_mcp.py sync-catalog`
-- `./scripts/bishop_mcp.py search <query>`
-- `./scripts/bishop_mcp.py build-gemini`
+BISHOP turns Slack and a dashboard into a control plane for real Gemini and Codex CLI sessions while keeping execution on your machine, preserving visible terminal state, and layering in durable memory, queueing, and environment awareness.
 
-Interaction modes:
+It is intentionally lighter than full hosted agent platforms: smaller control plane, lower runtime cost, clearer execution model, and far less platform lock-in.
 
-- `@BISHOP` in Slack for lightweight brainstorming chat
-- `/cli` and `/codex` for real terminal execution
-- local dashboard for launch, inspection, and follow-up control
+## At a glance
+
+| Surface | What it does |
+| --- | --- |
+| Slack | Start sessions, monitor progress, and continue work inside one thread |
+| Dashboard | Launch commands, inspect sessions, read logs, and send follow-ups |
+| Terminal | Run real Gemini and Codex CLI sessions locally |
+| Memory | Keep durable context in `GEMINI.md`, `vibes.md`, and SQLite |
+| MCP layer | Enable project MCP servers only when they are actually needed |
+
+## Core loop
+
+1. Trigger work from Slack or the dashboard.
+2. Queue it through Redis/RQ.
+3. Launch the real runtime in Terminal.
+4. Stream output back to Slack and the dashboard.
+5. Continue the same run with thread replies or follow-up input.
+6. Preserve durable context locally for future sessions.
 
 ## Platform summary
 
