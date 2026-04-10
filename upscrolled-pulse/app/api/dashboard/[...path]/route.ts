@@ -24,21 +24,31 @@ async function proxy(request: NextRequest, path: string[]) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(buildBackendUrl(path, request), {
-    method: request.method,
-    headers,
-    body: request.method === "GET" ? undefined : await request.text(),
-    cache: "no-store",
-  });
+  try {
+    const response = await fetch(buildBackendUrl(path, request), {
+      method: request.method,
+      headers,
+      body: request.method === "GET" ? undefined : await request.text(),
+      cache: "no-store",
+    });
 
-  const text = await response.text();
-  return new NextResponse(text, {
-    status: response.status,
-    headers: {
-      "content-type": response.headers.get("content-type") ?? "application/json",
-      "cache-control": "no-store",
-    },
-  });
+    const text = await response.text();
+    return new NextResponse(text, {
+      status: response.status,
+      headers: {
+        "content-type": response.headers.get("content-type") ?? "application/json",
+        "cache-control": "no-store",
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "Dashboard backend is unavailable.",
+        detail: error instanceof Error ? error.message : "Unknown fetch error",
+      },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
+  }
 }
 
 export async function GET(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {

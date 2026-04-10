@@ -4,6 +4,7 @@ import sys
 import io
 from dataclasses import dataclass
 from contextlib import redirect_stdout, redirect_stderr
+from typing import Optional
 from config import CONFIG
 from services.runtime_adapters import get_runtime_adapter
 
@@ -146,8 +147,57 @@ def get_terminal_snapshot(window_id=None):
         return TerminalSnapshot(window_id=str(window_id or ""), exists=False, busy=False, contents="")
 
 
-def send_input_to_terminal(input_text, window_id=None):
-    """Uses AppleScript to send input text and a Return key to a SPECIFIC window."""
+def get_terminal_tty(window_id=None) -> Optional[str]:
+    if sys.platform != "darwin":
+        return None
+
+    target = f"window id {window_id}" if window_id else "front window"
+    script = f'''
+    tell application "Terminal"
+        if exists ({target}) then
+            try
+                return tty of selected tab of {target}
+            on error
+                return ""
+            end try
+        end if
+        return ""
+    end tell
+    '''
+
+    try:
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+        tty_path = (result.stdout or "").strip()
+        return tty_path or None
+    except Exception as e:
+        print(f"⚠️ Error resolving terminal tty for {window_id}: {e}")
+        return None
+
+
+def _write_to_tty(tty_path: str, input_text: str, submit: bool) -> bool:
+    payload = input_text or ""
+    if submit:
+        payload += "\r"
+    if not payload:
+        return True
+
+    try:
+        fd = os.open(tty_path, os.O_WRONLY | os.O_NOCTTY)
+        try:
+            os.write(fd, payload.encode("utf-8"))
+        finally:
+            os.close(fd)
+        return True
+    except Exception as e:
+        print(f"⚠️ Error writing to tty {tty_path}: {e}")
+        return False
+
+
+def send_input_to_terminal(input_text, window_id=None, tty_path=None, submit=True):
+    """Send text to a terminal session, preferring direct tty writes when available."""
+    if tty_path:
+        return _write_to_tty(tty_path, input_text, submit)
+
     if sys.platform == "darwin":
         try:
             # Escape double quotes for AppleScript string
@@ -170,11 +220,14 @@ def send_input_to_terminal(input_text, window_id=None):
                     tell process "Terminal"
                         keystroke "{escaped_input}"
                         delay 0.1
-                        key code 36 -- Return key
+                        {'key code 36 -- Return key' if submit else ''}
                     end tell
                 end tell
                 '''
             else:
+                if not submit:
+                    print("⚠️ Non-submitting terminal input requires a tty path; falling back is not available.")
+                    return False
                 script = f'''
                 tell application "Terminal"
                     if exists ({target}) then

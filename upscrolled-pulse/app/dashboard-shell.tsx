@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useEffectEvent, useState } from "react";
+import { startTransition, useEffect, useEffectEvent, useRef, useState } from "react";
 
 type Overview = {
   brand: string;
@@ -64,137 +64,260 @@ type NoteRow = {
   updated_at: string;
 };
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+type ViewKey = "launch" | "sessions" | "memory" | "paths";
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+const runtimeModeOptions = [
+  { label: "Default", value: "" },
+  { label: "Gemini YOLO", value: "--yolo" },
+  { label: "Codex auto", value: "runtime:codex --full-auto" },
+  { label: "Codex shell", value: "runtime:codex --yolo" },
+  { label: "Gemini forced", value: "runtime:gemini" },
+];
+
+const navItems: Array<{ key: ViewKey; label: string; glyph: string }> = [
+  { key: "launch", label: "Launch", glyph: ">" },
+  { key: "sessions", label: "Sessions", glyph: "#" },
+  { key: "memory", label: "Memory", glyph: "*" },
+  { key: "paths", label: "Paths", glyph: "/" },
+];
+
+const asciiFrames = [
+  String.raw`▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒
+░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░
+▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒
+~~::==--~~::==--~~::==--~~::==--~~::=`,
+  String.raw`░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░
+▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒
+░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░
+=--~~::==--~~::==--~~::==--~~::==--~`,
+  String.raw`▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░
+░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒░░▒▒░░▒
+▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░░▒░▒▒░
+::==--~~::==--~~::==--~~::==--~~::==`,
+];
+
+function formatTimestamp(value?: string | null) {
+  if (!value) {
+    return "now";
   }
-
-  return response.json() as Promise<T>;
+  return new Date(value).toLocaleString();
 }
 
 function statusTone(status: string) {
   switch (status) {
     case "completed":
-      return "bg-emerald-500/12 text-emerald-200 ring-1 ring-emerald-500/25";
+      return "text-emerald-200 bg-emerald-400/10 ring-1 ring-emerald-300/20";
     case "attention_needed":
-      return "bg-amber-500/12 text-amber-100 ring-1 ring-amber-500/25";
+      return "text-amber-100 bg-amber-400/10 ring-1 ring-amber-300/20";
     case "waiting_for_input":
-      return "bg-sky-500/12 text-sky-100 ring-1 ring-sky-500/25";
+      return "text-sky-100 bg-sky-400/10 ring-1 ring-sky-300/20";
     case "running":
     case "booting":
     case "settled":
-      return "bg-zinc-100/8 text-zinc-100 ring-1 ring-white/10";
+      return "text-zinc-100 bg-white/7 ring-1 ring-white/8";
     default:
-      return "bg-zinc-100/6 text-zinc-300 ring-1 ring-white/8";
+      return "text-zinc-300 bg-white/5 ring-1 ring-white/6";
   }
 }
 
-const runtimeModeOptions = [
-  { label: "Default routing", value: "" },
-  { label: "Gemini YOLO", value: "--yolo" },
-  { label: "Codex full-auto", value: "runtime:codex --full-auto" },
-  { label: "Codex YOLO shell", value: "runtime:codex --yolo" },
-  { label: "Force Gemini", value: "runtime:gemini" },
-];
+function trimError(text: string) {
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 4500);
+  try {
+    const response = await fetch(path, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    const bodyText = await response.text();
+    let payload: unknown = {};
+    if (bodyText) {
+      try {
+        payload = JSON.parse(bodyText);
+      } catch {
+        payload = { error: bodyText };
+      }
+    }
+    if (!response.ok) {
+      const errorPayload = payload as { error?: string; detail?: string };
+      throw new Error(errorPayload.error || errorPayload.detail || `Request failed: ${response.status}`);
+    }
+    return payload as T;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function AsciiBackdrop() {
+  const [frameIndex, setFrameIndex] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setFrameIndex((value) => (value + 1) % asciiFrames.length);
+    }, 240);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(255,255,255,0.15),transparent_0%,transparent_30%),radial-gradient(circle_at_78%_18%,rgba(255,255,255,0.07),transparent_0%,transparent_26%),linear-gradient(150deg,rgba(255,255,255,0.03),transparent_35%,transparent_70%,rgba(255,255,255,0.02))]" />
+      <pre className="ascii-rain absolute -top-10 right-[-8%] select-none text-[10px] leading-4 text-white/10 sm:text-xs">
+        {asciiFrames[frameIndex]}
+      </pre>
+      <pre className="ascii-rain absolute bottom-[-4%] left-[8%] select-none text-[10px] leading-4 text-white/8 sm:text-xs">
+        {asciiFrames[(frameIndex + 1) % asciiFrames.length]}
+      </pre>
+    </div>
+  );
+}
 
 export function DashboardShell() {
+  const pollLockRef = useRef(false);
+  const [view, setView] = useState<ViewKey>("launch");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [resources, setResources] = useState<ResourceRow[]>([]);
   const [notes, setNotes] = useState<NoteRow[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
   const [composerCommand, setComposerCommand] = useState("/cli");
   const [composerMode, setComposerMode] = useState("");
   const [composerText, setComposerText] = useState("");
   const [sessionInput, setSessionInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>("");
-  const [lastAction, setLastAction] = useState<string>("");
+  const [banner, setBanner] = useState("");
+  const [connectionIssue, setConnectionIssue] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string>("");
 
-  const loadBase = useEffectEvent(async () => {
-    try {
-      const [overviewPayload, sessionsPayload, resourcesPayload, notesPayload] = await Promise.all([
-        fetchJson<Overview>("/api/dashboard/overview"),
-        fetchJson<{ sessions: SessionSummary[] }>("/api/dashboard/sessions"),
-        fetchJson<{ resources: ResourceRow[] }>("/api/dashboard/resources"),
-        fetchJson<{ notes: NoteRow[] }>("/api/dashboard/notes"),
-      ]);
+  const loadReferenceData = useEffectEvent(async () => {
+    const [resourcesResult, notesResult] = await Promise.allSettled([
+      fetchJson<{ resources: ResourceRow[] }>("/api/dashboard/resources"),
+      fetchJson<{ notes: NoteRow[] }>("/api/dashboard/notes"),
+    ]);
 
-      setError("");
-      setOverview(overviewPayload);
-      setSessions(sessionsPayload.sessions);
-      setResources(resourcesPayload.resources);
-      setNotes(notesPayload.notes);
-
-      if (!selectedSessionId && sessionsPayload.sessions[0]?.session_id) {
-        setSelectedSessionId(sessionsPayload.sessions[0].session_id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard data.");
+    if (resourcesResult.status === "fulfilled") {
+      setResources(resourcesResult.value.resources);
+    }
+    if (notesResult.status === "fulfilled") {
+      setNotes(notesResult.value.notes);
     }
   });
 
-  const loadSession = useEffectEvent(async (sessionId: string) => {
+  const loadLiveData = useEffectEvent(async (silent = false) => {
+    const [overviewResult, sessionsResult] = await Promise.allSettled([
+      fetchJson<Overview>("/api/dashboard/overview"),
+      fetchJson<{ sessions: SessionSummary[] }>("/api/dashboard/sessions"),
+    ]);
+
+    const overviewOk = overviewResult.status === "fulfilled";
+    const sessionsOk = sessionsResult.status === "fulfilled";
+
+    if (overviewOk) {
+      setOverview(overviewResult.value);
+    }
+    if (sessionsOk) {
+      setSessions(sessionsResult.value.sessions);
+      if (!selectedSessionId && sessionsResult.value.sessions[0]?.session_id) {
+        setSelectedSessionId(sessionsResult.value.sessions[0].session_id);
+      }
+    }
+
+    if (overviewOk || sessionsOk) {
+      setConnectionIssue("");
+      setLastSyncedAt(new Date().toLocaleTimeString());
+      return;
+    }
+
+    const message =
+      overviewResult.status === "rejected"
+        ? overviewResult.reason instanceof Error
+          ? overviewResult.reason.message
+          : "Dashboard backend is unavailable."
+        : sessionsResult.status === "rejected" && sessionsResult.reason instanceof Error
+          ? sessionsResult.reason.message
+          : "Dashboard backend is unavailable.";
+
+    if (!silent || (!overview && sessions.length === 0)) {
+      setConnectionIssue(trimError(message));
+    }
+  });
+
+  const loadSelectedSession = useEffectEvent(async (sessionId: string, silent = false) => {
     if (!sessionId) {
       setSelectedSession(null);
       return;
     }
+
     try {
       const payload = await fetchJson<SessionDetail>(`/api/dashboard/sessions/${sessionId}`);
-      setError("");
       setSelectedSession(payload);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load session.");
+      if (!silent) {
+        setConnectionIssue("");
+      }
+    } catch (error) {
+      if (!silent) {
+        setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to load session.");
+      }
     }
   });
 
   useEffect(() => {
     startTransition(() => {
-      void loadBase();
+      void loadLiveData(false);
+      void loadReferenceData();
     });
-  }, [loadBase]);
+  }, [loadLiveData, loadReferenceData]);
 
   useEffect(() => {
     startTransition(() => {
-      void loadSession(selectedSessionId);
+      void loadSelectedSession(selectedSessionId, false);
     });
-  }, [loadSession, selectedSessionId]);
+  }, [loadSelectedSession, selectedSessionId]);
 
   useEffect(() => {
+    let tick = 0;
     const id = window.setInterval(() => {
+      if (document.visibilityState === "hidden" || pollLockRef.current) {
+        return;
+      }
+      pollLockRef.current = true;
+      tick += 1;
       startTransition(() => {
-        void loadBase();
-        if (selectedSessionId) {
-          void loadSession(selectedSessionId);
-        }
+        void Promise.all([
+          loadLiveData(true),
+          selectedSessionId ? loadSelectedSession(selectedSessionId, true) : Promise.resolve(),
+          tick % 4 === 0 ? loadReferenceData() : Promise.resolve(),
+        ]).finally(() => {
+          pollLockRef.current = false;
+        });
       });
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, [loadBase, loadSession, selectedSessionId]);
+    }, 7000);
+    return () => {
+      window.clearInterval(id);
+      pollLockRef.current = false;
+    };
+  }, [loadLiveData, loadReferenceData, loadSelectedSession, selectedSessionId]);
 
   const selectedSessionSummary = sessions.find((session) => session.session_id === selectedSessionId) ?? null;
 
   async function handleTriggerCommand() {
     if (!composerText.trim()) {
-      setError("Enter a command to run.");
+      setBanner("Enter a command before launching.");
       return;
     }
 
     setBusy(true);
-    setError("");
     try {
-      const payload = await fetchJson<{ job_id: string; input_text: string }>("/api/dashboard/commands", {
+      const payload = await fetchJson<{ job_id: string }>("/api/dashboard/commands", {
         method: "POST",
         body: JSON.stringify({
           command: composerCommand,
@@ -202,13 +325,11 @@ export function DashboardShell() {
           text: composerText.trim(),
         }),
       });
-      setLastAction(`Queued ${composerCommand} as job ${payload.job_id}`);
+      setBanner(`Queued ${composerCommand} as ${payload.job_id}`);
       setComposerText("");
-      startTransition(() => {
-        void loadBase();
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to queue command.");
+      startTransition(() => void loadLiveData(true));
+    } catch (error) {
+      setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to queue command.");
     } finally {
       setBusy(false);
     }
@@ -216,329 +337,410 @@ export function DashboardShell() {
 
   async function handleSendSessionInput() {
     if (!selectedSessionId || !sessionInput.trim()) {
-      setError("Select a session and enter input.");
+      setBanner("Pick a session and write the follow-up first.");
       return;
     }
 
     setBusy(true);
-    setError("");
     try {
-      const payload = await fetchJson<{ job_id: string }>("/api/dashboard/sessions/" + selectedSessionId + "/input", {
+      const payload = await fetchJson<{ job_id: string }>(`/api/dashboard/sessions/${selectedSessionId}/input`, {
         method: "POST",
         body: JSON.stringify({ text: sessionInput.trim() }),
       });
-      setLastAction(`Queued session input as job ${payload.job_id}`);
+      setBanner(`Queued follow-up as ${payload.job_id}`);
       setSessionInput("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send input.");
+    } catch (error) {
+      setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to send follow-up.");
     } finally {
       setBusy(false);
     }
   }
 
+  const stats = [
+    { label: "active", value: overview?.sessions.active ?? 0 },
+    { label: "waiting", value: overview?.sessions.waiting ?? 0 },
+    { label: "queue", value: overview?.queue.pending_count ?? 0 },
+    { label: "notes", value: overview?.memory.notes_count ?? 0 },
+  ];
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.07),_transparent_22%),linear-gradient(135deg,_#131416_0%,_#1b1d21_45%,_#111214_100%)] text-zinc-100">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col px-6 py-6 lg:px-8">
-        <header className="grid gap-4 rounded-[28px] border border-white/10 bg-black/25 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur md:grid-cols-[1.5fr_1fr]">
-          <div>
-            <div className="mb-3 flex items-center gap-3">
-              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.8)]" />
-              <span className="text-xs uppercase tracking-[0.35em] text-zinc-400">Bishop command center</span>
-            </div>
-            <h1 className="max-w-3xl text-4xl font-semibold tracking-[-0.05em] text-white sm:text-5xl">
-              A lean operator console for local-first agent work.
-            </h1>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-400 sm:text-base">
-              Trigger the same worker flow as Slack, watch live sessions, inspect durable memory, and steer active terminals
-              without bouncing between tools.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              { label: "Active sessions", value: overview?.sessions.active ?? 0 },
-              { label: "Waiting on input", value: overview?.sessions.waiting ?? 0 },
-              { label: "Queued jobs", value: overview?.queue.pending_count ?? 0 },
-              { label: "Memory notes", value: overview?.memory.notes_count ?? 0 },
-            ].map((card) => (
-              <div key={card.label} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">{card.label}</div>
-                <div className="mt-2 text-3xl font-semibold tracking-[-0.06em] text-white">{card.value}</div>
-              </div>
-            ))}
-          </div>
-        </header>
-
-        {error ? (
-          <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-            {error}
-          </div>
-        ) : null}
-        {lastAction ? (
-          <div className="mt-4 rounded-2xl border border-emerald-400/15 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-100">
-            {lastAction}
-          </div>
-        ) : null}
-
-        <section className="mt-6 grid flex-1 gap-6 xl:grid-cols-[420px_minmax(0,1fr)_380px]">
+    <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(145deg,#101113_0%,#17191d_46%,#0b0c0e_100%)] text-zinc-100">
+      <AsciiBackdrop />
+      <div className="relative flex min-h-screen">
+        <aside className="hidden w-20 shrink-0 border-r border-white/7 bg-black/20 backdrop-blur md:flex md:flex-col md:items-center md:justify-between md:py-8">
           <div className="space-y-6">
-            <div className="rounded-[24px] border border-white/8 bg-zinc-950/55 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.03em] text-white">Command composer</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Queue the same `/cli` and `/codex` flows the Slack bot uses.</p>
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-lg tracking-[0.3em] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+              B
+            </div>
+            <nav className="space-y-3">
+              {navItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setView(item.key)}
+                  className={`group flex w-16 flex-col items-center gap-2 rounded-2xl px-2 py-3 text-[11px] uppercase tracking-[0.22em] transition ${
+                    view === item.key ? "bg-white/[0.08] text-white" : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200"
+                  }`}
+                >
+                  <span className="text-sm">{item.glyph}</span>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="operator-pill rotate-180 [writing-mode:vertical-rl]">liquid metal local-first</div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="border-b border-white/7 bg-black/18 px-5 py-4 backdrop-blur sm:px-7">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="space-y-2">
+                <div className="operator-pill">{overview?.brand ?? "BISHOP"} / command center</div>
+                <div className="flex flex-wrap gap-2 text-xs uppercase tracking-[0.24em] text-zinc-500">
+                  {stats.map((stat) => (
+                    <div key={stat.label} className="rounded-full border border-white/7 bg-white/[0.03] px-3 py-2 text-zinc-200">
+                      {stat.label} <span className="ml-2 text-white">{stat.value}</span>
+                    </div>
+                  ))}
                 </div>
-                <span className="rounded-full bg-zinc-100/6 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-zinc-400">
-                  RQ-backed
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                <span className="rounded-full border border-white/7 bg-white/[0.03] px-3 py-2">
+                  sync {lastSyncedAt || "pending"}
                 </span>
+                <span className="rounded-full border border-white/7 bg-white/[0.03] px-3 py-2">
+                  api {connectionIssue ? "degraded" : "stable"}
+                </span>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2 overflow-x-auto md:hidden">
+              {navItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setView(item.key)}
+                  className={`rounded-full border px-3 py-2 text-[11px] uppercase tracking-[0.22em] transition ${
+                    view === item.key ? "border-white/14 bg-white/[0.08] text-white" : "border-white/7 bg-white/[0.03] text-zinc-400"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </header>
+
+          {connectionIssue ? (
+            <div className="mx-5 mt-4 rounded-2xl border border-amber-300/12 bg-amber-400/8 px-4 py-3 text-sm text-amber-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:mx-7">
+              {connectionIssue}. Holding the last good state.
+            </div>
+          ) : null}
+          {banner ? (
+            <div className="mx-5 mt-4 rounded-2xl border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:mx-7">
+              {banner}
+            </div>
+          ) : null}
+
+          <div className="flex min-h-0 flex-1 flex-col gap-5 px-5 py-5 sm:px-7 lg:flex-row">
+            <section className="panel-stage min-h-[72vh] flex-1 rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur">
+              {view === "launch" ? (
+                <div className="view-stage grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+                  <div className="space-y-4">
+                    <div className="operator-block">
+                      <div className="operator-label">launch</div>
+                      <div className="operator-copy">Same queue. Same worker. Same runtime flow as Slack.</div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-white/8 bg-black/18 p-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="grid gap-2 text-sm text-zinc-400">
+                          Command
+                          <select
+                            value={composerCommand}
+                            onChange={(event) => setComposerCommand(event.target.value)}
+                            className="rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white outline-none transition focus:border-zinc-300"
+                          >
+                            <option value="/cli">/cli</option>
+                            <option value="/codex">/codex</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-2 text-sm text-zinc-400">
+                          Mode
+                          <select
+                            value={composerMode}
+                            onChange={(event) => setComposerMode(event.target.value)}
+                            className="rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white outline-none transition focus:border-zinc-300"
+                          >
+                            {runtimeModeOptions.map((option) => (
+                              <option key={option.label} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <label className="mt-3 grid gap-2 text-sm text-zinc-400">
+                        Instruction
+                        <textarea
+                          value={composerText}
+                          onChange={(event) => setComposerText(event.target.value)}
+                          placeholder="Use openbrowser to inspect the issue, then summarize the blockers."
+                          className="min-h-48 rounded-[22px] border border-white/10 bg-zinc-950/80 px-4 py-4 font-mono text-sm leading-7 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
+                        />
+                      </label>
+
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                          prompt now routes through vibes-full.md
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleTriggerCommand}
+                          disabled={busy}
+                          className="rounded-2xl border border-white/12 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {busy ? "Queueing" : "Trigger"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="operator-block">
+                      <div className="operator-label">queue</div>
+                      <div className="operator-copy">Recent sessions and the current worker backlog.</div>
+                    </div>
+                    <div className="grid gap-3">
+                      {overview?.recent_sessions.slice(0, 5).map((session) => (
+                        <button
+                          key={session.session_id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSessionId(session.session_id);
+                            setView("sessions");
+                          }}
+                          className="rounded-[22px] border border-white/7 bg-white/[0.03] px-4 py-4 text-left transition hover:border-white/14 hover:bg-white/[0.05]"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-medium text-white">
+                              {session.runtime.toUpperCase()} · {session.session_id}
+                            </div>
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(session.status)}`}>
+                              {session.status.replaceAll("_", " ")}
+                            </span>
+                          </div>
+                          <div className="mt-3 text-sm leading-6 text-zinc-300">
+                            {session.original_request || session.refined_request || "No request captured."}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {view === "sessions" ? (
+                <div className="view-stage grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+                  <div className="space-y-3">
+                    {sessions.map((session) => (
+                      <button
+                        key={session.session_id}
+                        type="button"
+                        onClick={() => setSelectedSessionId(session.session_id)}
+                        className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
+                          selectedSessionId === session.session_id
+                            ? "border-white/20 bg-white/[0.08]"
+                            : "border-white/7 bg-white/[0.03] hover:border-white/14 hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium text-white">{session.session_id}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(session.status)}`}>
+                            {session.status.replaceAll("_", " ")}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                          {session.runtime} / {session.launch_mode || "default"}
+                        </div>
+                        <div className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-300">
+                          {session.original_request || session.refined_request || "No request captured."}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="operator-block">
+                      <div className="operator-label">session</div>
+                      <div className="operator-copy">
+                        {selectedSessionSummary
+                          ? `${selectedSessionSummary.runtime.toUpperCase()} · ${selectedSessionSummary.session_id}`
+                          : "Pick a session from the rail."}
+                      </div>
+                    </div>
+
+                    {selectedSession ? (
+                      <>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                            <div className="operator-label">request</div>
+                            <div className="mt-3 text-sm leading-6 text-zinc-200">
+                              {selectedSession.original_request || selectedSession.refined_request || "No request captured."}
+                            </div>
+                          </div>
+                          <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                            <div className="operator-label">summary</div>
+                            <div className="mt-3 text-sm leading-6 text-zinc-200">
+                              {selectedSession.final_summary || "Still running."}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 xl:grid-cols-2">
+                          <div className="rounded-[22px] border border-white/7 bg-zinc-950/85 p-4">
+                            <div className="operator-label">live tail</div>
+                            <pre className="mt-3 max-h-[24rem] overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-zinc-200">
+                              {selectedSession.output_tail || "(No output yet)"}
+                            </pre>
+                          </div>
+                          <div className="rounded-[22px] border border-white/7 bg-zinc-950/85 p-4">
+                            <div className="operator-label">log excerpt</div>
+                            <pre className="mt-3 max-h-[24rem] overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-zinc-300">
+                              {selectedSession.log_excerpt || "(No log excerpt yet)"}
+                            </pre>
+                          </div>
+                        </div>
+
+                        <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                          <div className="operator-label">follow-up</div>
+                          <div className="mt-3 flex flex-col gap-3 lg:flex-row">
+                            <textarea
+                              value={sessionInput}
+                              onChange={(event) => setSessionInput(event.target.value)}
+                              placeholder="Continue with the OpenClaw memory path and summarize what changed."
+                              className="min-h-24 flex-1 rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleSendSessionInput}
+                              disabled={busy || !selectedSessionId}
+                              className="rounded-2xl border border-white/12 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Send
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-[22px] border border-dashed border-white/10 px-6 py-12 text-center text-sm text-zinc-500">
+                        No session selected.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              {view === "memory" ? (
+                <div className="view-stage grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+                  <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                    <div className="operator-label">memory</div>
+                    <div className="mt-3 space-y-3">
+                      <div className="rounded-2xl border border-white/7 bg-white/[0.03] px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">db</div>
+                        <div className="mt-2 break-all font-mono text-xs leading-6 text-zinc-200">{overview?.memory.db_path}</div>
+                      </div>
+                      <div className="rounded-2xl border border-white/7 bg-white/[0.03] px-4 py-3">
+                        <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">vibes</div>
+                        <div className="mt-2 break-all font-mono text-xs leading-6 text-zinc-200">{overview?.memory.vibes_path}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {notes.map((note) => (
+                      <div key={`${note.updated_at}-${note.title}`} className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-medium text-white">{note.title}</div>
+                          <span className="rounded-full bg-white/7 px-2 py-1 text-[10px] uppercase tracking-[0.22em] text-zinc-300">
+                            {note.kind}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-zinc-300">{note.content}</p>
+                        <div className="mt-3 text-xs uppercase tracking-[0.2em] text-zinc-500">{formatTimestamp(note.updated_at)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {view === "paths" ? (
+                <div className="view-stage grid gap-3 xl:grid-cols-2">
+                  {resources.map((resource) => (
+                    <div key={resource.key} className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-medium text-white">{resource.key}</div>
+                        <span className="rounded-full bg-white/7 px-2 py-1 text-[10px] uppercase tracking-[0.22em] text-zinc-300">
+                          {resource.category}
+                        </span>
+                      </div>
+                      <div className="mt-3 break-all font-mono text-xs leading-6 text-zinc-300">{resource.path}</div>
+                      <div className="mt-3 text-sm leading-6 text-zinc-400">{resource.description}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
+            <aside className="panel-stage w-full shrink-0 space-y-4 rounded-[28px] border border-white/8 bg-black/16 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.32)] backdrop-blur lg:w-[23rem]">
+              <div className="operator-block">
+                <div className="operator-label">status</div>
+                <div className="operator-copy">Live state, queue pressure, and current selection.</div>
               </div>
 
               <div className="grid gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="grid gap-2 text-sm text-zinc-400">
-                    Command
-                    <select
-                      value={composerCommand}
-                      onChange={(event) => setComposerCommand(event.target.value)}
-                      className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white outline-none transition focus:border-zinc-300"
-                    >
-                      <option value="/cli">/cli</option>
-                      <option value="/codex">/codex</option>
-                    </select>
-                  </label>
-
-                  <label className="grid gap-2 text-sm text-zinc-400">
-                    Runtime mode
-                    <select
-                      value={composerMode}
-                      onChange={(event) => setComposerMode(event.target.value)}
-                      className="rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white outline-none transition focus:border-zinc-300"
-                    >
-                      {runtimeModeOptions.map((option) => (
-                        <option key={option.value || "default"} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <label className="grid gap-2 text-sm text-zinc-400">
-                  Instruction
-                  <textarea
-                    value={composerText}
-                    onChange={(event) => setComposerText(event.target.value)}
-                    placeholder="Inspect the repo, reconcile the listener state, and summarize the blockers."
-                    className="min-h-40 rounded-[22px] border border-white/10 bg-zinc-900 px-4 py-4 text-sm leading-7 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleTriggerCommand}
-                  disabled={busy}
-                  className="inline-flex items-center justify-center rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-medium text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {busy ? "Queueing..." : "Trigger worker"}
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-white/8 bg-zinc-950/55 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.03em] text-white">System index</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Live paths and durable resources the operator prompt can use.</p>
-                </div>
-                <span className="rounded-full bg-white/6 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-zinc-400">
-                  {resources.length} resources
-                </span>
-              </div>
-              <div className="space-y-3">
-                {resources.slice(0, 8).map((resource) => (
-                  <div key={resource.key} className="rounded-2xl border border-white/6 bg-white/[0.02] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-medium text-white">{resource.key}</div>
-                      <span className="rounded-full bg-zinc-100/6 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-400">
-                        {resource.category}
-                      </span>
-                    </div>
-                    <p className="mt-2 break-all text-xs leading-6 text-zinc-500">{resource.path}</p>
-                    <p className="mt-2 text-sm leading-6 text-zinc-400">{resource.description}</p>
+                {stats.map((stat) => (
+                  <div key={stat.label} className="rounded-[22px] border border-white/7 bg-white/[0.03] px-4 py-4">
+                    <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">{stat.label}</div>
+                    <div className="mt-2 text-3xl font-semibold tracking-[-0.06em] text-white">{stat.value}</div>
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
 
-          <div className="grid min-h-[70vh] gap-6 lg:grid-rows-[minmax(0,300px)_minmax(0,1fr)]">
-            <div className="rounded-[24px] border border-white/8 bg-zinc-950/55 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.03em] text-white">Session rail</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Recent sessions from the durable SQLite lifecycle store.</p>
-                </div>
-                <span className="rounded-full bg-white/6 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-zinc-400">
-                  {sessions.length} visible
-                </span>
-              </div>
-
-              <div className="grid gap-3 overflow-y-auto pr-1">
-                {sessions.map((session) => (
-                  <button
-                    type="button"
-                    key={session.session_id}
-                    onClick={() => setSelectedSessionId(session.session_id)}
-                    className={`rounded-[22px] border p-4 text-left transition ${
-                      session.session_id === selectedSessionId
-                        ? "border-zinc-200/35 bg-white/[0.06]"
-                        : "border-white/6 bg-white/[0.02] hover:border-white/12 hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-white">
-                        {session.runtime?.toUpperCase() || "AGENT"} · {session.session_id}
-                      </div>
-                      <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(session.status)}`}>
-                        {session.status.replaceAll("_", " ")}
-                      </span>
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-300">
-                      {session.original_request || session.refined_request || "No prompt recorded."}
-                    </p>
-                    <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
-                      <span>{session.launch_mode || "default"}</span>
-                      <span>{new Date(session.updated_at).toLocaleString()}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-white/8 bg-zinc-950/55 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.03em] text-white">Inspector</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Session details, live tail, and the same follow-up input path Slack threads use.</p>
-                </div>
+              <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                <div className="operator-label">selected</div>
                 {selectedSessionSummary ? (
-                  <span className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(selectedSessionSummary.status)}`}>
-                    {selectedSessionSummary.status.replaceAll("_", " ")}
-                  </span>
-                ) : null}
-              </div>
-
-              {selectedSession ? (
-                <div className="grid gap-5">
-                  <div className="grid gap-3 rounded-[22px] border border-white/6 bg-white/[0.02] p-4 md:grid-cols-2">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Original request</div>
-                      <div className="mt-2 text-sm leading-6 text-zinc-200">{selectedSession.original_request || "No request captured."}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Final summary</div>
-                      <div className="mt-2 text-sm leading-6 text-zinc-200">{selectedSession.final_summary || "Still in progress."}</div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <div className="rounded-[22px] border border-white/6 bg-zinc-900/80 p-4">
-                      <div className="mb-3 text-xs uppercase tracking-[0.22em] text-zinc-500">Output tail</div>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-zinc-200">
-                        {selectedSession.output_tail || "(No output yet)"}
-                      </pre>
-                    </div>
-                    <div className="rounded-[22px] border border-white/6 bg-zinc-900/80 p-4">
-                      <div className="mb-3 text-xs uppercase tracking-[0.22em] text-zinc-500">Session log excerpt</div>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-zinc-300">
-                        {selectedSession.log_excerpt || "(No log excerpt yet)"}
-                      </pre>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[22px] border border-white/6 bg-white/[0.02] p-4">
-                    <div className="mb-3 text-xs uppercase tracking-[0.22em] text-zinc-500">Send input to active session</div>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <textarea
-                        value={sessionInput}
-                        onChange={(event) => setSessionInput(event.target.value)}
-                        placeholder="Continue with the OpenClaw memory path and summarize the cron jobs."
-                        className="min-h-24 flex-1 rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSendSessionInput}
-                        disabled={busy || !selectedSessionId}
-                        className="rounded-2xl bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Send to worker
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-[22px] border border-dashed border-white/10 px-6 py-12 text-center text-sm text-zinc-500">
-                  Select a session to inspect output, logs, and interactive input controls.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-white/8 bg-zinc-950/55 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.03em] text-white">Durable memory</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Recent reusable notes and the backing SQLite location.</p>
-                </div>
-                <span className="rounded-full bg-white/6 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-zinc-400">
-                  SQLite
-                </span>
-              </div>
-              <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-4">
-                <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">Memory DB</div>
-                <div className="mt-2 break-all font-mono text-xs leading-6 text-zinc-300">{overview?.memory.db_path}</div>
-                <div className="mt-4 text-xs uppercase tracking-[0.22em] text-zinc-500">Vibes file</div>
-                <div className="mt-2 break-all font-mono text-xs leading-6 text-zinc-300">{overview?.memory.vibes_path}</div>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {notes.map((note) => (
-                  <div key={`${note.updated_at}-${note.title}`} className="rounded-2xl border border-white/6 bg-white/[0.02] p-4">
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-zinc-300">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-white">{note.title}</div>
-                      <span className="rounded-full bg-zinc-100/6 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-400">
-                        {note.kind}
+                      <span>{selectedSessionSummary.session_id}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(selectedSessionSummary.status)}`}>
+                        {selectedSessionSummary.status.replaceAll("_", " ")}
                       </span>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">{note.content}</p>
-                    <div className="mt-3 text-xs text-zinc-500">{new Date(note.updated_at).toLocaleString()}</div>
+                    <div>{selectedSessionSummary.runtime.toUpperCase()} / {selectedSessionSummary.launch_mode || "default"}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{formatTimestamp(selectedSessionSummary.updated_at)}</div>
                   </div>
-                ))}
+                ) : (
+                  <div className="mt-3 text-sm text-zinc-500">No active selection.</div>
+                )}
               </div>
-            </div>
 
-            <div className="rounded-[24px] border border-white/8 bg-zinc-950/55 p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold tracking-[-0.03em] text-white">Paths and storage</h2>
-                  <p className="mt-1 text-sm text-zinc-500">Where BISHOP reads durable state across agents and sessions.</p>
+              <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                <div className="operator-label">paths</div>
+                <div className="mt-3 space-y-3">
+                  {Object.entries(overview?.paths ?? {})
+                    .slice(0, 4)
+                    .map(([key, value]) => (
+                      <div key={key}>
+                        <div className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">{key.replaceAll("_", " ")}</div>
+                        <div className="mt-1 break-all font-mono text-xs leading-5 text-zinc-300">{value}</div>
+                      </div>
+                    ))}
                 </div>
-                <span className="rounded-full bg-white/6 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-zinc-400">
-                  local-first
-                </span>
               </div>
-              <div className="space-y-3">
-                {Object.entries(overview?.paths ?? {}).map(([key, value]) => (
-                  <div key={key} className="rounded-2xl border border-white/6 bg-white/[0.02] p-4">
-                    <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">{key.replaceAll("_", " ")}</div>
-                    <div className="mt-2 break-all font-mono text-xs leading-6 text-zinc-300">{value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            </aside>
           </div>
-        </section>
+        </div>
       </div>
     </main>
   );

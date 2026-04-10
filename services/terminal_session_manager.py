@@ -78,6 +78,11 @@ class TerminalSessionManager:
 
         prompt_transport = adapter.prompt_transport(launch_mode=effective_launch_mode)
         boot_delay = adapter.boot_delay_seconds()
+        try:
+            prompt_enter_delay = max(0, int(str(CONFIG.get("TERMINAL_PROMPT_ENTER_DELAY_SECONDS", "5") or "5")))
+        except Exception:
+            prompt_enter_delay = 5
+        tty_path = shell_service.get_terminal_tty(window_id)
 
         # 2. For interactive stdin-driven shells, give the runtime time to become ready
         # before typing the initial prompt. For argv-native launches (for example
@@ -86,7 +91,12 @@ class TerminalSessionManager:
         if prompt_transport == "stdin":
             shell_service.send_input_to_terminal(runtime_bootstrap_command, window_id=window_id)
             time.sleep(max(0, boot_delay))
-            shell_service.send_input_to_terminal(initial_command, window_id=window_id)
+            submitted = shell_service.send_input_to_terminal(initial_command, window_id=window_id, tty_path=tty_path, submit=False)
+            if submitted:
+                time.sleep(prompt_enter_delay)
+                shell_service.send_input_to_terminal("", window_id=window_id, tty_path=tty_path, submit=True)
+            else:
+                shell_service.send_input_to_terminal(initial_command, window_id=window_id)
 
         # 3. Store session info
         SESSIONS[session_id] = {
@@ -109,9 +119,11 @@ class TerminalSessionManager:
             "launch_command": adapter.launch_command(launch_mode=effective_launch_mode),
             "prompt_transport": prompt_transport,
             "boot_delay_seconds": boot_delay,
+            "prompt_enter_delay_seconds": prompt_enter_delay,
             "runtime_metadata": adapter_meta,
             "state_path": state_path,
             "output_path": output_path,
+            "tty_path": tty_path,
             "terminal_exists": True,
             "terminal_busy": False,
             "completed_task_count": 0,
@@ -652,7 +664,12 @@ class TerminalSessionManager:
 
         adapter = get_runtime_adapter(session.get("runtime"))
         translated_input = adapter.terminal_input_for_control(input_text)
-        return shell_service.send_input_to_terminal(translated_input, window_id=session["window_id"])
+        return shell_service.send_input_to_terminal(
+            translated_input,
+            window_id=session["window_id"],
+            tty_path=session.get("tty_path"),
+            submit=True,
+        )
 
     @staticmethod
     def snapshot(session_id):

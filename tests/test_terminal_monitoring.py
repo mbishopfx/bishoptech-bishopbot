@@ -451,16 +451,26 @@ class TerminalMonitoringTests(unittest.TestCase):
         self.assertEqual(SESSIONS[gemini_session_id]["launch_command"], "/opt/homebrew/bin/gemini --yolo")
 
     @patch("services.terminal_session_manager.threading.Thread")
+    @patch("services.terminal_session_manager.shell_service.get_terminal_tty")
     @patch("services.terminal_session_manager.shell_service.send_input_to_terminal")
     @patch("services.terminal_session_manager.time.sleep")
     @patch("services.terminal_session_manager.shell_service.start_terminal_session")
-    def test_start_session_waits_and_injects_prompt_for_stdin_launches(self, mock_start_terminal, mock_sleep, mock_send_input, mock_thread):
+    def test_start_session_waits_and_injects_prompt_for_stdin_launches(self, mock_start_terminal, mock_sleep, mock_send_input, mock_get_tty, mock_thread):
         mock_start_terminal.return_value = "456"
+        mock_get_tty.return_value = "/dev/ttys456"
         thread_instance = MagicMock()
         mock_thread.return_value = thread_instance
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(CONFIG, {"SESSION_LOG_DIR": tmpdir, "SESSION_STATE_DIR": tmpdir}, clear=False):
+            with patch.dict(
+                CONFIG,
+                {
+                    "SESSION_LOG_DIR": tmpdir,
+                    "SESSION_STATE_DIR": tmpdir,
+                    "TERMINAL_PROMPT_ENTER_DELAY_SECONDS": "5",
+                },
+                clear=False,
+            ):
                 session_id = TerminalSessionManager.start_session(
                     user_id="U456",
                     response_url="https://example.com/slack",
@@ -472,16 +482,26 @@ class TerminalMonitoringTests(unittest.TestCase):
                 )
 
         self.assertIsNotNone(session_id)
-        mock_sleep.assert_called_once()
-        self.assertEqual(mock_send_input.call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_sleep.call_args_list[0].args[0], 10)
+        self.assertEqual(mock_sleep.call_args_list[1].args[0], 5)
+        self.assertEqual(mock_send_input.call_count, 3)
         first_call = mock_send_input.call_args_list[0]
         second_call = mock_send_input.call_args_list[1]
+        third_call = mock_send_input.call_args_list[2]
         self.assertIn("gemini --yolo", first_call.kwargs.get("input_text", "") or first_call.args[0])
         self.assertEqual(first_call.kwargs.get("window_id", "456"), "456")
         self.assertEqual(second_call.args[0], "open the app")
         self.assertEqual(second_call.kwargs.get("window_id", "456"), "456")
+        self.assertEqual(second_call.kwargs.get("tty_path"), "/dev/ttys456")
+        self.assertFalse(second_call.kwargs.get("submit", True))
+        self.assertEqual(third_call.args[0], "")
+        self.assertEqual(third_call.kwargs.get("tty_path"), "/dev/ttys456")
+        self.assertTrue(third_call.kwargs.get("submit", False))
         thread_instance.start.assert_called_once()
         self.assertEqual(SESSIONS[session_id]["prompt_transport"], "stdin")
+        self.assertEqual(SESSIONS[session_id]["tty_path"], "/dev/ttys456")
+        self.assertEqual(SESSIONS[session_id]["prompt_enter_delay_seconds"], 5)
         _, kwargs = mock_start_terminal.call_args
         self.assertEqual(kwargs["startup_command"], "cd /Users/matthewbishop/BishopBot")
         self.assertIsNone(kwargs["initial_prompt"])

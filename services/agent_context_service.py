@@ -11,6 +11,7 @@ from config import CONFIG
 MAX_VIBES_CHARS = 4000
 MAX_NOTE_CHARS = 1200
 MAX_NOTES = 6
+MAX_CONTEXT_NOTES = 3
 
 
 def _utc_now() -> str:
@@ -29,6 +30,10 @@ def context_root() -> Path:
 
 def vibes_path() -> Path:
     return context_root() / "vibes.md"
+
+
+def vibes_full_path() -> Path:
+    return context_root() / "vibes-full.md"
 
 
 def memory_db_path() -> Path:
@@ -94,11 +99,13 @@ def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
     openclaw_home = Path(str(CONFIG.get("OPENCLAW_HOME") or "~/.openclaw")).expanduser()
     shared_skills_dir = Path(str(CONFIG.get("SHARED_SKILLS_DIR") or "~/.agents/skills")).expanduser()
     gemini_skills_dir = Path(str(CONFIG.get("GEMINI_SKILLS_DIR") or "~/.gemini/skills")).expanduser()
+    openclaw_soul = _openclaw_soul_path()
     root = _project_root()
     now = _utc_now()
-    return [
+    rows = [
         ("bishopbot_project", "project", str(root), "BishopBot project root.", "seed", now),
         ("bishopbot_vibes", "context", str(vibes_path()), "Durable operator guidance for BishopBot-driven Gemini/Codex sessions.", "seed", now),
+        ("bishopbot_vibes_full", "context", str(vibes_full_path()), "Generated environment map used to keep runtime prompts compact.", "seed", now),
         ("bishopbot_memory_db", "context", str(memory_db_path()), "SQLite database for session tracking, durable notes, and known resource paths.", "seed", now),
         ("bishopbot_memory_script", "tool", str(memory_script_path()), "Helper CLI for viewing resources and writing durable notes into the memory DB.", "seed", now),
         ("hermes_home", "external", str(hermes_home), "Hermes home directory.", "seed", now),
@@ -113,6 +120,9 @@ def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
         ("agents_skills", "external", str(shared_skills_dir), "Shared Codex/Gemini skills directory.", "seed", now),
         ("gemini_skills", "external", str(gemini_skills_dir), "Gemini-specific skill directory.", "seed", now),
     ]
+    if openclaw_soul:
+        rows.append(("openclaw_soul", "external", openclaw_soul, "Optional OpenClaw tone file.", "seed", now))
+    return rows
 
 
 def _seed_resources(conn: sqlite3.Connection):
@@ -135,8 +145,12 @@ def _ensure_vibes_file():
     path = vibes_path()
     if path.exists():
         return
+    hermes_home = Path(str(CONFIG.get("HERMES_HOME") or "~/.hermes")).expanduser()
+    openclaw_home = Path(str(CONFIG.get("OPENCLAW_HOME") or "~/.openclaw")).expanduser()
+    shared_skills_dir = Path(str(CONFIG.get("SHARED_SKILLS_DIR") or "~/.agents/skills")).expanduser()
+    gemini_skills_dir = Path(str(CONFIG.get("GEMINI_SKILLS_DIR") or "~/.gemini/skills")).expanduser()
     path.write_text(
-        """# BishopBot Vibes
+        f"""# BishopBot Vibes
 
 ## Purpose
 - BishopBot sessions should act like a pragmatic local operator for Matthew's environment.
@@ -148,10 +162,10 @@ def _ensure_vibes_file():
 - Record durable notes in the memory DB when you discover a reusable fact, workflow, or important location.
 
 ## Important Systems
-- Hermes home: `/Users/matthewbishop/.hermes`
-- OpenClaw home: `/Users/matthewbishop/.openclaw`
-- Shared skills: `/Users/matthewbishop/.agents/skills`
-- Gemini skills: `/Users/matthewbishop/.gemini/skills`
+- Hermes home: `{hermes_home}`
+- OpenClaw home: `{openclaw_home}`
+- Shared skills: `{shared_skills_dir}`
+- Gemini skills: `{gemini_skills_dir}`
 
 ## Memory Policy
 - The SQLite DB at `agent-context/memory.sqlite` automatically tracks BishopBot session lifecycle.
@@ -165,12 +179,60 @@ def _ensure_vibes_file():
     )
 
 
+def _openclaw_soul_path() -> str | None:
+    openclaw_home = Path(str(CONFIG.get("OPENCLAW_HOME") or "~/.openclaw")).expanduser()
+    candidates = (
+        openclaw_home / "workspace" / "soul.md",
+        openclaw_home / "soul.md",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _render_vibes_full(resources: Iterable[sqlite3.Row], notes: Iterable[sqlite3.Row]) -> str:
+    resource_lines = "\n".join(
+        f"- {row['key']}: {row['path']} | {row['description']}"
+        for row in resources
+    ) or "- No indexed resources yet."
+    note_lines = "\n".join(
+        f"- {row['title']}: {row['content'][:MAX_NOTE_CHARS]}"
+        for row in notes
+    ) or "- No durable notes yet."
+    soul_path = _openclaw_soul_path() or "null"
+
+    return (
+        "# BISHOP Vibes Full\n\n"
+        "This file is the compact environment map for Gemini and Codex sessions.\n"
+        "Read it when you need routes, durable memory locations, or nearby agent-system context.\n\n"
+        "## Primary Files\n"
+        f"- Vibes: {vibes_path()}\n"
+        f"- Memory DB: {memory_db_path()}\n"
+        f"- Memory helper: {memory_script_path()}\n"
+        f"- OpenClaw soul: {soul_path}\n\n"
+        "## Route Map\n"
+        f"{resource_lines}\n\n"
+        "## Durable Notes\n"
+        f"{note_lines}\n\n"
+        "## Policy\n"
+        "- Use `vibes.md` for stable behavioral guidance.\n"
+        "- Use the SQLite memory only for reusable facts.\n"
+        "- If `OpenClaw soul` is `null`, do not assume it exists.\n"
+    )
+
+
+def _refresh_vibes_full(resources: Iterable[sqlite3.Row], notes: Iterable[sqlite3.Row]) -> None:
+    vibes_full_path().write_text(_render_vibes_full(resources, notes), encoding="utf-8")
+
+
 def ensure_context_assets():
     context_root()
     _ensure_vibes_file()
     with _connect() as conn:
         _ensure_schema(conn)
         _seed_resources(conn)
+        _refresh_vibes_full(_resource_rows(conn), _recent_notes(conn))
 
 
 def _read_vibes_excerpt() -> str:
@@ -211,24 +273,21 @@ def build_prompt_context() -> str:
     ensure_context_assets()
     with _connect() as conn:
         resources = _resource_rows(conn)
-        notes = _recent_notes(conn)
-
-    resource_lines = "\n".join(
-        f"- {row['key']}: `{row['path']}` ({row['description']})"
-        for row in resources
-    )
+        notes = _recent_notes(conn)[:MAX_CONTEXT_NOTES]
+    _refresh_vibes_full(resources, notes)
     note_lines = "\n".join(
-        f"- [{row['kind']}] {row['title']}: {row['content'][:MAX_NOTE_CHARS]}"
+        f"- {row['title']}: {row['content'][:MAX_NOTE_CHARS]}"
         for row in notes
     ) or "- No durable notes yet."
+    soul_path = _openclaw_soul_path() or "null"
 
     return (
         "Persistent operator context is available for this session.\n"
-        f"- Vibes file: `{vibes_path()}`\n"
+        f"- Read `{vibes_full_path()}` for the environment map and route overview.\n"
+        f"- Core vibes live in `{vibes_path()}`.\n"
         f"- Memory DB: `{memory_db_path()}`\n"
-        f"- Memory helper: `{memory_script_path()}`\n\n"
-        "Known resource index:\n"
-        f"{resource_lines}\n\n"
+        f"- Memory helper: `{memory_script_path()}`\n"
+        f"- OpenClaw soul reference: `{soul_path}`\n\n"
         "Current vibes.md excerpt:\n"
         f"{_read_vibes_excerpt()}\n\n"
         "Recent durable notes:\n"
