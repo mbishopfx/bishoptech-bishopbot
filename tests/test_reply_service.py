@@ -23,6 +23,12 @@ class ReplyServiceTests(unittest.TestCase):
         self.assertTrue(ok)
         mock_slack_send.assert_called_once_with("https://example.com/slack", "hello slack", blocks=None)
 
+    @patch("services.reply_service.slack_service.send_target_message", return_value={"ok": True, "ts": "123.456"})
+    def test_slack_target_routes_to_chat_post_message(self, mock_slack_send):
+        ok = reply_service.send("slack:C123:123.456", "hello threaded slack")
+        self.assertTrue(ok)
+        mock_slack_send.assert_called_once_with("slack:C123:123.456", "hello threaded slack", blocks=None)
+
 
 if __name__ == "__main__":
     unittest.main()

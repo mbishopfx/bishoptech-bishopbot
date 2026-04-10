@@ -89,6 +89,48 @@ class TerminalMonitoringTests(unittest.TestCase):
                 self.assertFalse(session["active"])
                 self.assertTrue(mock_send_status.called)
 
+    @patch("services.terminal_session_manager.session_link_service.set_slack_thread_session")
+    @patch("services.terminal_session_manager.slack_service.send_target_message")
+    def test_send_status_to_slack_creates_thread_root_for_slack_channel_targets(self, mock_send_target, mock_set_thread):
+        session_id = "sessslk1"
+        SESSIONS[session_id] = {
+            "window_id": "123",
+            "response_url": "slack:C123",
+            "user_id": "U123",
+            "last_output": "",
+            "last_raw_output": "",
+            "last_summary_output": "",
+            "active": True,
+            "start_time": time.time(),
+            "last_poll_time": time.time(),
+            "status": "running",
+            "needs_input": False,
+            "completed_at": None,
+            "runtime": "gemini",
+            "runtime_label": "Gemini",
+            "launch_mode": "yolo",
+            "launch_mode_label": "YOLO",
+            "launch_command": "/opt/homebrew/bin/gemini --yolo",
+            "prompt_transport": "stdin",
+            "boot_delay_seconds": 10,
+            "runtime_metadata": {"controls": {"supports_interactive_controls": True}},
+            "terminal_exists": True,
+            "terminal_busy": True,
+            "completed_task_count": 0,
+            "final_summary": None,
+            "tasks": ["one"],
+            "agent_mode": "gemini",
+            "current_task_index": 0,
+            "plan_text": "1. one",
+        }
+        mock_send_target.return_value = {"ok": True, "ts": "1712345678.123456"}
+
+        TerminalSessionManager.send_status_to_slack(session_id, "runtime booted")
+
+        self.assertEqual(SESSIONS[session_id]["response_url"], "slack:C123:1712345678.123456")
+        mock_set_thread.assert_called_once_with("C123", "1712345678.123456", session_id)
+        mock_send_target.assert_called_once()
+
     @patch("services.terminal_session_manager.TerminalSessionManager.send_status_to_slack")
     @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
     def test_poll_loop_appends_snapshot_and_completion_to_runtime_log(self, mock_snapshot, mock_send_status):

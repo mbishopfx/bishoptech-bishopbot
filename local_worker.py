@@ -47,18 +47,22 @@ def process_task(command, input_text, response_url, user_id):
         send_delayed_message(response_url, error_msg)
         print(error_msg)
 
-def process_terminal_input(session_id, input_text, user_id, response_url):
+def process_terminal_input(session_id, input_text, user_id, response_url, send_ack=True):
     """
     Handles interactive terminal input from Slack buttons.
     """
     print(f"⌨️ Sending terminal input to session {session_id}: {input_text}")
+    session = TerminalSessionManager.SESSIONS.get(session_id) if hasattr(TerminalSessionManager, "SESSIONS") else None
+    reply_target = response_url
+    if session and session.get("response_url"):
+        reply_target = session["response_url"]
     
     if input_text == "STATUS":
         snap = TerminalSessionManager.snapshot(session_id)
         session = TerminalSessionManager.SESSIONS.get(session_id, {})
         runtime_label = session.get("runtime_label", "Agent")
         msg = f"📟 {runtime_label} session `{session_id}` status:\n```\n{snap or '(no output)'}\n```"
-        send_delayed_message(response_url, msg)
+        send_delayed_message(reply_target, msg)
         return
 
     if input_text == "STOP":
@@ -72,7 +76,11 @@ def process_terminal_input(session_id, input_text, user_id, response_url):
         success = TerminalSessionManager.send_input(session_id, input_text)
         msg = f"⌨️ Sent `{input_text}` to session `{session_id}`" if success else f"❌ Failed to send input to session `{session_id}`"
 
-    send_delayed_message(response_url, msg)
+    if success:
+        if send_ack:
+            send_delayed_message(reply_target, msg)
+    else:
+        send_delayed_message(reply_target, msg)
 
 if __name__ == '__main__':
     # Start the knowledge refresh in the background

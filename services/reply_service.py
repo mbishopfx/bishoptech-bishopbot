@@ -18,6 +18,12 @@ def is_console_target(target: str) -> bool:
     return bool(_CONSOLE_PREFIX_RE.match(target.strip()))
 
 
+def is_slack_target(target: str) -> bool:
+    if not target:
+        return False
+    return slack_service.is_slack_target(target)
+
+
 def _parse_whatsapp_target(target: str):
     m = _WHATSAPP_PREFIX_RE.match((target or "").strip())
     if not m:
@@ -50,6 +56,9 @@ def send(target: str, text: str, *, blocks=None):
         if blocks:
             print(f"[console:{console_label}] Slack blocks omitted in console mode ({len(blocks)} block(s)).")
         return True
+
+    if is_slack_target(target):
+        return bool(slack_service.send_target_message(target, text, blocks=blocks))
 
     # Default: treat as Slack response_url
     return slack_service.send_delayed_message(target, text, blocks=blocks)

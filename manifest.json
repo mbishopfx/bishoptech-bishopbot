@@ -37,9 +37,21 @@
             "bot": [
                 "commands",
                 "chat:write",
-                "chat:write.public"
+                "chat:write.public",
+                "channels:history",
+                "groups:history",
+                "im:history",
+                "mpim:history"
             ]
         }
+    },
+    "event_subscriptions": {
+        "bot_events": [
+            "message.channels",
+            "message.groups",
+            "message.im",
+            "message.mpim"
+        ]
     },
     "settings": {
         "org_deploy_enabled": false,

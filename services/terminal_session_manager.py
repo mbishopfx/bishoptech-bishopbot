@@ -3,7 +3,7 @@ import uuid
 import threading
 import shlex
 from datetime import datetime, timezone
-from services import shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service
+from services import shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service, slack_service
 from services.runtime_adapters import get_runtime_adapter
 from config import CONFIG
 
@@ -481,6 +481,71 @@ class TerminalSessionManager:
                 msg += f"\n\nControls: !status {session_id} | !stop {session_id}"
             reply_service.send(target, msg)
             return
+
+        if reply_service.is_slack_target(target):
+            channel_id, thread_ts = slack_service.parse_slack_target(target)
+            if channel_id and not thread_ts:
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": header}
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {"type": "mrkdwn", "text": context_line}
+                        ]
+                    },
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": formatted_output}
+                    }
+                ]
+
+                action_elements = []
+                if controls.get("supports_interactive_controls", True):
+                    action_elements.extend([
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": controls.get("enter_button_label", "✅ Yes / Enter")},
+                            "value": f"{session_id}:ENTER",
+                            "action_id": "cli_input_enter"
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": controls.get("no_button_label", "❌ No")},
+                            "value": f"{session_id}:N",
+                            "action_id": "cli_input_no"
+                        },
+                    ])
+
+                action_elements.extend([
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "📟 Status"},
+                        "value": f"{session_id}:STATUS",
+                        "action_id": "cli_status"
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "🛑 Stop Session"},
+                        "style": "danger",
+                        "value": f"{session_id}:STOP",
+                        "action_id": "cli_stop"
+                    }
+                ])
+
+                blocks.append({
+                    "type": "actions",
+                    "elements": action_elements
+                })
+
+                response = slack_service.send_target_message(target, header, blocks=blocks)
+                if response and response.get("ts"):
+                    thread_target = f"slack:{channel_id}:{response['ts']}"
+                    session["response_url"] = thread_target
+                    session_link_service.set_slack_thread_session(channel_id, response["ts"], session_id)
+                return
 
         blocks = [
             {
