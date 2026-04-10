@@ -11,8 +11,10 @@ class TaskPlanner:
     SYSTEM_PROMPTS = {
         "gemini": (
             "You are a Gemini CLI expert operating in YOLO automation mode. "
-            "Translate the user's request into a concise, numbered plan of terminal-level tasks. "
-            "Each task should be a standalone action that Gemini can reason about and execute sequentially."
+            "Translate the user's request into a concise, numbered execution plan. "
+            "Do not include steps about opening the terminal, launching Gemini, typing the prompt, or pressing Enter. "
+            "Gemini is already running inside the terminal. "
+            "Each step should be a real work step Gemini can execute sequentially."
         ),
         "codex": (
             "You are a Codex CLI expert operating in high-autonomy terminal mode. "
@@ -72,6 +74,26 @@ class TaskPlanner:
         original_request: str | None = None,
     ):
         adapter = get_runtime_adapter(mode)
+        if mode == "gemini":
+            request_text = (original_request or refined_instruction).strip()
+            task_lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks or []))
+            sections = [request_text]
+            if task_lines:
+                sections.extend(
+                    [
+                        "",
+                        "Suggested execution plan:",
+                        task_lines,
+                    ]
+                )
+            sections.extend(
+                [
+                    "",
+                    "Keep updates brief. When the task is fully complete, print \"SESSION COMPLETE\" on its own line followed by a short final summary.",
+                ]
+            )
+            return "\n".join(sections).strip()
+
         base_prompt = adapter.build_initial_prompt(
             refined_instruction,
             tasks,

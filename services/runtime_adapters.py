@@ -65,6 +65,7 @@ class RuntimeAdapter:
     no_button_label: str = "❌ No"
     exit_marker_prefix: str = "__BISHOPBOT_RUNTIME_EXIT__"
     ready_tokens: tuple[str, ...] = field(default_factory=tuple)
+    not_ready_tokens: tuple[str, ...] = field(default_factory=tuple)
 
     def available_launch_modes(self) -> dict[str, RuntimeLaunchMode]:
         modes = {}
@@ -311,6 +312,8 @@ class RuntimeAdapter:
         haystack = self._normalized_output(output)
         if not haystack:
             return False
+        if any(token.lower() in haystack for token in self.not_ready_tokens):
+            return False
         return any(token.lower() in haystack for token in self.ready_tokens)
 
     def detect_error(self, output: str) -> bool:
@@ -486,7 +489,8 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
         attention_tokens=("proceed?", "continue?", "y/n", "confirm", "press enter", "allow"),
         completion_tokens=("session complete",),
         error_tokens=("error", "failed", "traceback", "permission denied"),
-        ready_tokens=("gemini cli v", "signed in with google", "plan:", "extensions update"),
+        ready_tokens=("type your message or @path/to/file",),
+        not_ready_tokens=("waiting for authentication",),
         enter_button_label="✅ Confirm / Enter",
     ),
     "codex": RuntimeAdapter(

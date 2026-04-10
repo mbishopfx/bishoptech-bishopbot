@@ -514,20 +514,36 @@ class TerminalMonitoringTests(unittest.TestCase):
     @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
     @patch("services.terminal_session_manager.time.sleep")
     @patch("services.terminal_session_manager.session_output_service.read_output_file")
-    def test_wait_for_runtime_ready_detects_gemini_banner_tokens(self, mock_read_output, mock_sleep, mock_snapshot):
+    def test_wait_for_runtime_ready_requires_gemini_input_prompt(self, mock_read_output, mock_sleep, mock_snapshot):
         adapter = TerminalSessionManager
         runtime_adapter = __import__("services.runtime_adapters", fromlist=["get_runtime_adapter"]).get_runtime_adapter("gemini")
-        mock_snapshot.return_value = MagicMock(contents="", exists=True, busy=True)
         mock_read_output.side_effect = [
             "",
-            "[Gemini] starting in YOLO automation mode...",
-            "Gemini CLI v0.37.1\nSigned in with Google /auth\n",
+            "[Gemini] starting in YOLO automation mode...\nGemini CLI v0.37.1\nSigned in with Google /auth\n",
+            "Type your message or @path/to/file",
         ]
+        mock_snapshot.return_value = MagicMock(contents="", exists=True, busy=True)
 
         ready = adapter._wait_for_runtime_ready(runtime_adapter, "/tmp/fake.log", launch_mode="yolo", window_id="123")
 
         self.assertTrue(ready)
         self.assertGreaterEqual(mock_read_output.call_count, 2)
+
+    @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
+    @patch("services.terminal_session_manager.time.sleep")
+    @patch("services.terminal_session_manager.session_output_service.read_output_file")
+    def test_wait_for_runtime_ready_blocks_on_gemini_auth_screen(self, mock_read_output, mock_sleep, mock_snapshot):
+        adapter = TerminalSessionManager
+        runtime_adapter = __import__("services.runtime_adapters", fromlist=["get_runtime_adapter"]).get_runtime_adapter("gemini")
+        mock_read_output.return_value = ""
+        mock_snapshot.side_effect = [
+            MagicMock(contents="Gemini CLI v0.37.1\nWaiting for authentication...", exists=True, busy=True),
+            MagicMock(contents="Type your message or @path/to/file", exists=True, busy=True),
+        ]
+
+        ready = adapter._wait_for_runtime_ready(runtime_adapter, "/tmp/fake.log", launch_mode="yolo", window_id="123")
+
+        self.assertTrue(ready)
 
     @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
     @patch("services.terminal_session_manager.time.sleep")
@@ -539,6 +555,7 @@ class TerminalMonitoringTests(unittest.TestCase):
         mock_snapshot.side_effect = [
             MagicMock(contents="", exists=True, busy=True),
             MagicMock(contents="Gemini CLI v0.37.1\nPlan: Google AI Ultra for Business\n", exists=True, busy=True),
+            MagicMock(contents="Type your message or @path/to/file", exists=True, busy=True),
         ]
 
         ready = adapter._wait_for_runtime_ready(runtime_adapter, "/tmp/fake.log", launch_mode="yolo", window_id="123")
