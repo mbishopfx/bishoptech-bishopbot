@@ -5,6 +5,10 @@
 
 echo "🚀 Starting BishopBot on Railway..."
 
+# 0. Ensure requirements are installed
+echo "📦 Installing requirements..."
+pip install -r requirements.txt
+
 # 1. Start the GitHub Monitor in the background
 echo "🕵️ Starting GitHub Monitor..."
 python github_monitor_worker.py &
