@@ -35,7 +35,10 @@ def handle_cli_command(input_text, response_url=None, user_id=None, mode="gemini
                 f"🚀 *{adapter.label} automation starting for {who}...*{mode_line}\n{summary}"
             )
 
-        initial_command = TaskPlanner.build_cli_prompt(refined_input, tasks, mode=resolved_runtime)
+        if get_runtime_adapter(resolved_runtime).prompt_transport(launch_mode=selected_mode.key if selected_mode else None) == "stdin":
+            initial_command = effective_input
+        else:
+            initial_command = TaskPlanner.build_cli_prompt(refined_input, tasks, mode=resolved_runtime)
 
         # 3. Start Terminal Session via Manager
         session_id = TerminalSessionManager.start_session(

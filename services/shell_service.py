@@ -25,7 +25,7 @@ def run(code, cwd=None):
     else:
         return run_python(code, cwd)
 
-def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, launch_mode=None, state_file=None, output_file=None):
+def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, launch_mode=None, state_file=None, output_file=None, startup_command=None):
     if cwd is None:
         cwd = CONFIG["PROJECT_ROOT_DIR"]
 
@@ -37,13 +37,16 @@ def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, laun
 
     if sys.platform == "darwin":
         try:
-            launch_command = adapter.launch_bootstrap_command(
-                cwd,
-                initial_prompt=initial_prompt,
-                launch_mode=launch_mode,
-                state_file=state_file,
-                output_file=output_file,
-            )
+            if startup_command is not None:
+                launch_command = startup_command
+            else:
+                launch_command = adapter.launch_bootstrap_command(
+                    cwd,
+                    initial_prompt=initial_prompt,
+                    launch_mode=launch_mode,
+                    state_file=state_file,
+                    output_file=output_file,
+                )
 
             # We use single quotes for the 'osascript -e' wrapper,
             # so we must escape any single quotes in the AppleScript itself.

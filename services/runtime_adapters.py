@@ -10,6 +10,7 @@ SESSION_COMPLETE_RE = re.compile(r"SESSION COMPLETE\s*(.*)", re.IGNORECASE | re.
 SESSION_COMPLETE_LINE_RE = re.compile(r"^\s*SESSION COMPLETE\s*(.*)$", re.IGNORECASE)
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 SUMMARY_STOP_TOKENS = (
     "tokens used",
     "context window",
@@ -137,9 +138,10 @@ class RuntimeAdapter:
         quoted_cwd = shlex.quote(cwd)
         label = f"[{self.label}] starting in {self.prompt_style_label(launch_mode)}..."
         command_parts = self.command_parts(launch_mode=launch_mode)
+        prompt_transport = self.prompt_transport(launch_mode=launch_mode)
         
         # If transport is 'argv', we include the prompt as an argument.
-        if initial_prompt and self.prompt_transport(launch_mode=launch_mode) == "argv":
+        if initial_prompt and prompt_transport == "argv":
             if self.key == "gemini":
                 command_parts.extend(["--prompt", initial_prompt])
             else:
@@ -181,10 +183,12 @@ class RuntimeAdapter:
                 f"done"
             )
             segments.append(f"({hb_loop}) & HEARTBEAT_PID=$!")
-            
-            # Trap for cleanup and final state
+
+            # Trap for unexpected shell exit while the runtime is still active.
             trap_body = (
-                f"EXIT_CODE=$?; [ -n \"$HEARTBEAT_PID\" ] && kill \"$HEARTBEAT_PID\" 2>/dev/null; "
+                f"if [ -n \"$HEARTBEAT_PID\" ]; then "
+                f"EXIT_CODE=$?; "
+                f"kill \"$HEARTBEAT_PID\" 2>/dev/null; "
                 f"echo 'status=exited' > {q_state} ; "
                 f"echo \"exit_code=$EXIT_CODE\" >> {q_state} ; "
                 f"echo 'runtime={self.key}' >> {q_state} ; "
@@ -195,16 +199,38 @@ class RuntimeAdapter:
                 trap_body += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\" | tee -a {shlex.quote(output_file)}; "
             else:
                 trap_body += f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$EXIT_CODE\"; "
-            
+            trap_body += "fi; "
             segments.append(f"trap {shlex.quote(trap_body.strip())} EXIT")
 
         segments.append(f"echo {shlex.quote(label)}")
-        
-        # Execution with optional output capture
-        if output_file:
+
+        # Interactive runtimes such as Gemini need a TTY-preserving capture path.
+        if output_file and prompt_transport == "stdin":
+            segments.append(
+                f"script -q -F {shlex.quote(output_file)} {launch_cmd}"
+            )
+            segments.append("RUNTIME_EXIT_CODE=$?")
+        elif output_file:
             segments.append(f"{{ {launch_cmd}; }} 2>&1 | tee -a {shlex.quote(output_file)}")
+            segments.append("RUNTIME_EXIT_CODE=${pipestatus[1]}")
         else:
             segments.append(launch_cmd)
+            segments.append("RUNTIME_EXIT_CODE=$?")
+
+        if state_file:
+            q_state = shlex.quote(state_file)
+            resolved_mode = launch_mode or self.default_launch_mode or "default"
+            segments.append("[ -n \"$HEARTBEAT_PID\" ] && kill \"$HEARTBEAT_PID\" 2>/dev/null")
+            segments.append("unset HEARTBEAT_PID")
+            segments.append(f"echo 'status=exited' > {q_state}")
+            segments.append(f"echo \"exit_code=$RUNTIME_EXIT_CODE\" >> {q_state}")
+            segments.append(f"echo 'runtime={self.key}' >> {q_state}")
+            segments.append(f"echo 'launch_mode={resolved_mode}' >> {q_state}")
+            segments.append(f"echo \"exited_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)\" >> {q_state}")
+            if output_file:
+                segments.append(f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$RUNTIME_EXIT_CODE\" | tee -a {shlex.quote(output_file)}")
+            else:
+                segments.append(f"printf '{self.exit_marker_prefix}:{self.key}:%s\\n' \"$RUNTIME_EXIT_CODE\"")
 
         return " ; ".join(segments)
 
@@ -234,7 +260,8 @@ class RuntimeAdapter:
 
     def sanitize_output(self, output: Optional[str]) -> str:
         cleaned = ANSI_ESCAPE_RE.sub("", output or "")
-        return cleaned.replace("\r", "")
+        cleaned = cleaned.replace("\r", "")
+        return CONTROL_CHAR_RE.sub("", cleaned)
 
     def _normalized_output(self, output: Optional[str]) -> str:
         return self.sanitize_output(output).lower()
@@ -416,7 +443,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
         cli_args_config_key="GEMINI_CLI_ARGS",
         default_cli_args="--yolo",
         boot_delay_config_key="GEMINI_BOOT_DELAY_SECONDS",
-        default_boot_delay_seconds=8,
+        default_boot_delay_seconds=10,
         prompt_style="YOLO automation mode",
         default_launch_mode="yolo",
         launch_modes=(

@@ -317,7 +317,7 @@ class TerminalMonitoringTests(unittest.TestCase):
         self.assertEqual(SESSIONS[codex_session_id]["launch_command"], "codex exec --full-auto")
         self.assertEqual(SESSIONS[gemini_session_id]["launch_mode"], "yolo")
         self.assertEqual(SESSIONS[gemini_session_id]["prompt_transport"], "stdin")
-        self.assertEqual(SESSIONS[gemini_session_id]["launch_command"], "gemini --yolo")
+        self.assertEqual(SESSIONS[gemini_session_id]["launch_command"], "/opt/homebrew/bin/gemini --yolo")
 
     @patch("services.terminal_session_manager.threading.Thread")
     @patch("services.terminal_session_manager.shell_service.send_input_to_terminal")
@@ -342,9 +342,20 @@ class TerminalMonitoringTests(unittest.TestCase):
 
         self.assertIsNotNone(session_id)
         mock_sleep.assert_called_once()
-        mock_send_input.assert_called_once_with("open the app", window_id="456")
+        self.assertEqual(mock_send_input.call_count, 2)
+        first_call = mock_send_input.call_args_list[0]
+        second_call = mock_send_input.call_args_list[1]
+        self.assertIn("gemini --yolo", first_call.kwargs.get("input_text", "") or first_call.args[0])
+        self.assertEqual(first_call.kwargs.get("window_id", "456"), "456")
+        self.assertEqual(second_call.args[0], "open the app")
+        self.assertEqual(second_call.kwargs.get("window_id", "456"), "456")
         thread_instance.start.assert_called_once()
         self.assertEqual(SESSIONS[session_id]["prompt_transport"], "stdin")
+        _, kwargs = mock_start_terminal.call_args
+        self.assertEqual(kwargs["startup_command"], "cd /Users/matthewbishop/BishopBot")
+        self.assertIsNone(kwargs["initial_prompt"])
+        self.assertIsNone(kwargs["state_file"])
+        self.assertIsNone(kwargs["output_file"])
 
     def test_runtime_state_heartbeat_freshness_helper(self):
         fresh = {"heartbeat_at": "2099-01-01T00:00:00Z"}

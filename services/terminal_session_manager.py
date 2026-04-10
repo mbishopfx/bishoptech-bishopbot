@@ -1,6 +1,7 @@
 import time
 import uuid
 import threading
+import shlex
 from datetime import datetime, timezone
 from services import shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service
 from services.runtime_adapters import get_runtime_adapter
@@ -38,13 +39,28 @@ class TerminalSessionManager:
         # Some runtimes (for example `codex exec --full-auto`) want the prompt on argv at launch time
         # instead of waiting for keystroke injection after boot.
         launch_prompt = initial_command if adapter.prompt_transport(launch_mode=effective_launch_mode) == "argv" else None
-        window_id = shell_service.start_terminal_session(
-            runtime=adapter.key,
-            initial_prompt=launch_prompt,
+        runtime_bootstrap_command = adapter.launch_bootstrap_command(
+            CONFIG["PROJECT_ROOT_DIR"],
+            initial_prompt=None,
             launch_mode=effective_launch_mode,
             state_file=state_path,
             output_file=output_path,
         )
+
+        start_terminal_kwargs = {
+            "runtime": adapter.key,
+            "initial_prompt": launch_prompt,
+            "launch_mode": effective_launch_mode,
+            "state_file": state_path,
+            "output_file": output_path,
+        }
+        if adapter.prompt_transport(launch_mode=effective_launch_mode) == "stdin":
+            start_terminal_kwargs["startup_command"] = f"cd {shlex.quote(CONFIG['PROJECT_ROOT_DIR'])}"
+            start_terminal_kwargs["initial_prompt"] = None
+            start_terminal_kwargs["state_file"] = None
+            start_terminal_kwargs["output_file"] = None
+
+        window_id = shell_service.start_terminal_session(**start_terminal_kwargs)
 
         if not window_id:
             print(f"❌ Failed to start {adapter.label} terminal for session {session_id}")
@@ -58,6 +74,7 @@ class TerminalSessionManager:
         # `codex exec --full-auto`), do not sleep here: the process may finish quickly,
         # and delaying polling risks missing the real terminal lifecycle entirely.
         if prompt_transport == "stdin":
+            shell_service.send_input_to_terminal(runtime_bootstrap_command, window_id=window_id)
             time.sleep(max(0, boot_delay))
             shell_service.send_input_to_terminal(initial_command, window_id=window_id)
 

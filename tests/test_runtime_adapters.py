@@ -10,9 +10,14 @@ class RuntimeAdapterTests(unittest.TestCase):
         adapter = get_runtime_adapter("gemini")
         with patch.dict(CONFIG, {"GEMINI_CLI_ARGS": "--yolo", "GEMINI_PROMPT_TRANSPORT": "stdin"}, clear=False):
             self.assertEqual(adapter.prompt_transport(), "stdin")
-            command = adapter.launch_bootstrap_command("/tmp/project", initial_prompt="do work")
+            command = adapter.launch_bootstrap_command(
+                "/tmp/project",
+                initial_prompt="do work",
+                output_file="/tmp/session-output/test.log",
+            )
             self.assertIn("gemini --yolo", command)
             self.assertNotIn("do work", command)
+            self.assertIn("script -q -F /tmp/session-output/test.log /opt/homebrew/bin/gemini --yolo", command)
 
     def test_codex_exec_uses_argv_prompt_transport(self):
         adapter = get_runtime_adapter("codex")
@@ -20,8 +25,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertEqual(adapter.prompt_transport(), "argv")
             command = adapter.launch_bootstrap_command("/tmp/project", initial_prompt="ship it")
             self.assertIn("codex exec --full-auto 'ship it'", command)
-            self.assertIn("__BISHOPBOT_RUNTIME_EXIT__", command)
-            self.assertIn('printf \'%s:%s:%s\\n\'', command)
+            self.assertIn("RUNTIME_EXIT_CODE=$?", command)
             self.assertFalse(adapter.supports_interactive_controls())
 
     def test_launch_bootstrap_command_writes_runtime_state_sidecar_when_configured(self):
@@ -33,10 +37,10 @@ class RuntimeAdapterTests(unittest.TestCase):
             state_file="/tmp/session-state/test.state",
         )
         self.assertIn("status=running", command)
-        self.assertIn("heartbeat_at=%s", command)
-        self.assertIn("started_at=%s", command)
+        self.assertIn("heartbeat_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)", command)
+        self.assertIn("started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)", command)
         self.assertIn("status=exited", command)
-        self.assertIn("exited_at=%s", command)
+        self.assertIn("exited_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)", command)
         self.assertIn("HEARTBEAT_PID", command)
         self.assertIn("sleep 3", command)
         self.assertIn("/tmp/session-state/test.state", command)
@@ -51,10 +55,9 @@ class RuntimeAdapterTests(unittest.TestCase):
             state_file="/tmp/session-state/test.state",
             output_file="/tmp/session-output/test.log",
         )
-        self.assertIn("zsh -lc", command)
         self.assertIn(": > /tmp/session-output/test.log", command)
         self.assertIn("tee -a /tmp/session-output/test.log", command)
-        self.assertIn("EXIT_CODE=${pipestatus[1]}", command)
+        self.assertIn("RUNTIME_EXIT_CODE=${pipestatus[1]}", command)
         self.assertIn("__BISHOPBOT_RUNTIME_EXIT__:codex:", command)
 
     def test_codex_inferrs_argv_when_exec_is_used(self):
