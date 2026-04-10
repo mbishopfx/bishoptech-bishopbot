@@ -49,10 +49,12 @@ def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, laun
             tell application "Terminal"
                 activate
                 set newTab to do script "{launch_command}"
-                delay 1
+                delay 2
                 try
+                    -- Try to get the window ID associated with the new tab
                     return id of (window of newTab)
                 on error
+                    -- Fallback to front window if that fails
                     return id of front window
                 end try
             end tell
@@ -130,22 +132,26 @@ def get_terminal_snapshot(window_id=None):
 
 
 def send_input_to_terminal(input_text, window_id=None):
-    """Uses System Events to type input into a SPECIFIC Terminal window."""
+    """Uses System Events to paste input into a SPECIFIC Terminal window."""
     if sys.platform == "darwin":
         try:
-            # Escape double quotes by breaking the string and inserting the 'quote' constant
-            # This is the most reliable way to handle nested quotes in AppleScript
-            escaped_input = input_text.replace('"', '" & quote & "')
+            # Put the text into the clipboard
+            process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+            process.communicate(input=input_text.encode('utf-8'))
             
             # Target the specific window ID we captured earlier.
-            # If the window no longer exists, fall back to front window.
             target = f"window id {window_id}" if window_id else "front window"
             
+            # AppleScript to focus window and paste
             script = f'''
             tell application "Terminal"
                 activate
                 try
-                    set index of {target} to 1
+                    if exists ({target}) then
+                        set index of {target} to 1
+                    else
+                        set index of front window to 1
+                    end if
                 on error
                     set index of front window to 1
                 end try
@@ -153,9 +159,11 @@ def send_input_to_terminal(input_text, window_id=None):
             delay 0.5
             tell application "System Events"
                 tell process "Terminal"
-                    keystroke "{escaped_input}"
-                    delay 0.1
-                    key code 36 -- Return key
+                    -- Paste from clipboard
+                    keystroke "v" using {{command down}}
+                    delay 0.2
+                    -- Press Return
+                    key code 36
                 end tell
             end tell
             '''
