@@ -33,6 +33,8 @@ def _start_slack_socket_mode():
         user_id = body["user_id"]
         response_url = body["response_url"]
 
+        print(f"📥 Received {command} from {user_id}: {user_input}")
+
         # Immediately acknowledge to user
         say(f"📨 <@{user_id}>, task queued for local machine: `{command} {user_input}`")
 
