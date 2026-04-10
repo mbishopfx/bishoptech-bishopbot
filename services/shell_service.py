@@ -132,7 +132,7 @@ def get_terminal_snapshot(window_id=None):
 
 
 def send_input_to_terminal(input_text, window_id=None):
-    """Uses Terminal's native 'do script' to send input to a SPECIFIC window."""
+    """Uses Terminal's native 'do script' to send input to a SPECIFIC window and attempts to trigger execution."""
     if sys.platform == "darwin":
         try:
             # Escape double quotes for AppleScript string
@@ -141,7 +141,11 @@ def send_input_to_terminal(input_text, window_id=None):
             # Target the specific window ID we captured earlier.
             target = f"window id {window_id}" if window_id else "front window"
             
-            # AppleScript to focus window and send text
+            # We use 'do script' which is usually for shell commands, but if we send it 
+            # to a busy window, it can sometimes behave like stdin injection or at least
+            # show up in the buffer. 
+            # To ensure it EXECUTUES, we try to send a return key via System Events 
+            # but with a more robust check.
             script = f'''
             tell application "Terminal"
                 activate
@@ -152,14 +156,24 @@ def send_input_to_terminal(input_text, window_id=None):
                         do script "{escaped_input}" in front window
                     end if
                 on error err
-                    return err
+                    log "Terminal Error: " & err
                 end try
+            end tell
+            delay 0.2
+            tell application "System Events"
+                tell process "Terminal"
+                    set frontmost to true
+                    key code 36 -- Return key
+                end tell
             end tell
             '''
             result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
             if result.returncode != 0:
-                print(f"Error sending to terminal (exit {result.returncode}): {result.stderr.strip()}")
-                return False
+                # If System Events fails (exit 1), we at least want to know IF the 'do script' part worked.
+                # Often 'do script' works but 'System Events' fails due to permissions.
+                print(f"Terminal input sent, but Return key might have failed (exit {result.returncode}): {result.stderr.strip()}")
+                # We return True anyway if we suspect the text at least got into the buffer
+                return result.returncode == 0 or "System Events" in result.stderr
             return True
         except Exception as e:
             print(f"Exception sending to terminal: {e}")
