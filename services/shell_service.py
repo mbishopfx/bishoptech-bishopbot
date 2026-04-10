@@ -193,8 +193,93 @@ def _write_to_tty(tty_path: str, input_text: str, submit: bool) -> bool:
         return False
 
 
+def _send_input_via_terminal_ui(input_text: str, window_id=None, submit=True) -> bool:
+    target = f"window id {window_id}" if window_id else "front window"
+    keep_terminal_frontmost = _config_truthy("TERMINAL_ACTIVATE_ON_INPUT")
+    previous_app = ""
+
+    try:
+        previous_app_result = subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        previous_app = (previous_app_result.stdout or "").strip()
+    except Exception:
+        previous_app = ""
+
+    previous_clipboard = None
+    needs_paste = bool(input_text)
+    if needs_paste:
+        try:
+            previous_clipboard_result = subprocess.run(["pbpaste"], capture_output=True, text=True)
+            previous_clipboard = previous_clipboard_result.stdout
+        except Exception:
+            previous_clipboard = None
+
+        try:
+            subprocess.run(["pbcopy"], input=input_text, text=True, check=True)
+        except Exception as e:
+            print(f"⚠️ Error preparing clipboard for Terminal input: {e}")
+            return False
+
+    activate_line = "activate"
+    restore_line = ""
+    if not keep_terminal_frontmost and previous_app and previous_app != "Terminal":
+        escaped_previous_app = previous_app.replace('"', '\\"')
+        restore_line = f'''
+        delay 0.1
+        tell application "{escaped_previous_app}"
+            activate
+        end tell
+        '''
+
+    script = f'''
+    tell application "Terminal"
+        {activate_line}
+        try
+            if exists ({target}) then
+                set frontmost of {target} to true
+            end if
+        end try
+    end tell
+    delay 0.2
+    tell application "System Events"
+        tell process "Terminal"
+            {'keystroke "v" using command down' if needs_paste else ''}
+            {'delay 0.1' if needs_paste and submit else ''}
+            {'key code 36' if submit else ''}
+        end tell
+    end tell
+    {restore_line}
+    '''
+
+    try:
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error sending Terminal UI input (exit {result.returncode}): {result.stderr.strip()}")
+            return False
+        return True
+    except Exception as e:
+        print(f"Exception sending Terminal UI input: {e}")
+        return False
+    finally:
+        if needs_paste and previous_clipboard is not None:
+            try:
+                subprocess.run(["pbcopy"], input=previous_clipboard, text=True, check=True)
+            except Exception:
+                pass
+
+
 def send_input_to_terminal(input_text, window_id=None, tty_path=None, submit=True):
     """Send text to a terminal session, preferring direct tty writes when available."""
+    if sys.platform == "darwin" and window_id and tty_path:
+        return _send_input_via_terminal_ui(input_text, window_id=window_id, submit=submit)
+
     if tty_path:
         return _write_to_tty(tty_path, input_text, submit)
 

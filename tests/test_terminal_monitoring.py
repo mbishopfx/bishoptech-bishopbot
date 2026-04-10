@@ -381,6 +381,31 @@ class TerminalMonitoringTests(unittest.TestCase):
         self.assertNotIn("System Events", script)
         self.assertNotIn("activate", script)
 
+    @patch("services.shell_service.subprocess.run")
+    @patch("services.shell_service.sys.platform", "darwin")
+    def test_send_input_with_tty_uses_terminal_ui_keystrokes(self, mock_run):
+        from services import shell_service
+
+        mock_run.side_effect = [
+            MagicMock(stdout="Code\n", returncode=0, stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+
+        with patch.dict(CONFIG, {"TERMINAL_ACTIVATE_ON_INPUT": "false"}, clear=False):
+            ok = shell_service.send_input_to_terminal("hello world", window_id="123", tty_path="/dev/ttys123", submit=True)
+
+        self.assertTrue(ok)
+        self.assertEqual(mock_run.call_args_list[1].args[0][0], "pbpaste")
+        self.assertEqual(mock_run.call_args_list[2].args[0][0], "pbcopy")
+        script = mock_run.call_args_list[3].args[0][2]
+        self.assertIn('keystroke "v" using command down', script)
+        self.assertIn("key code 36", script)
+        self.assertIn('tell application "Code"', script)
+        self.assertEqual(mock_run.call_args_list[4].args[0][0], "pbcopy")
+
     @patch("services.terminal_session_manager.threading.Thread")
     @patch("services.terminal_session_manager.shell_service.send_input_to_terminal")
     @patch("services.terminal_session_manager.time.sleep")
