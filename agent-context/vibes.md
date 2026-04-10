@@ -10,10 +10,10 @@
 - Record durable notes in the memory DB when you discover a reusable fact, workflow, or important location.
 
 ## Important Systems
-- Hermes home: `/Users/matthewbishop/.hermes`
-- OpenClaw home: `/Users/matthewbishop/.openclaw`
-- Shared skills: `/Users/matthewbishop/.agents/skills`
-- Gemini skills: `/Users/matthewbishop/.gemini/skills`
+- Hermes home comes from `HERMES_HOME` in `.env`.
+- OpenClaw home comes from `OPENCLAW_HOME` in `.env`.
+- Shared skills come from `SHARED_SKILLS_DIR` in `.env`.
+- Gemini skills come from `GEMINI_SKILLS_DIR` in `.env`.
 
 ## Memory Policy
 - The SQLite DB at `agent-context/memory.sqlite` automatically tracks BishopBot session lifecycle.

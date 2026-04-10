@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# BishopBot Startup Script
+# BISHOP Startup Script
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,12 +14,12 @@ else
     echo "⚠️  Project venv not found at .venv; falling back to python3"
 fi
 
-echo "🤖 Starting BishopBot Local Environment..."
+echo "🤖 Starting BISHOP Local Environment..."
 
 # Function to stop background processes on exit
 cleanup() {
     echo ""
-    echo "🛑 Shutting down BishopBot processes..."
+    echo "🛑 Shutting down BISHOP processes..."
     # Kill all background jobs started by this script
     pkill -P $$
     exit
@@ -58,7 +58,7 @@ if [[ "$run_monitor" =~ ^([yY][eE][sS]|[yY])$ ]]; then
 fi
 
 echo ""
-echo "🚀 BishopBot is active! Logs will appear below."
+echo "🚀 BISHOP is active. Logs will appear below."
 echo "📌 Press Ctrl+C to stop ALL processes safely."
 echo "-------------------------------------------------------"
 

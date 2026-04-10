@@ -90,11 +90,10 @@ def _ensure_schema(conn: sqlite3.Connection):
 
 
 def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
-    user_home = Path("/Users/matthewbishop")
-    hermes_home = user_home / ".hermes"
-    openclaw_home = user_home / ".openclaw"
-    agents_home = user_home / ".agents"
-    gemini_home = user_home / ".gemini"
+    hermes_home = Path(str(CONFIG.get("HERMES_HOME") or "~/.hermes")).expanduser()
+    openclaw_home = Path(str(CONFIG.get("OPENCLAW_HOME") or "~/.openclaw")).expanduser()
+    shared_skills_dir = Path(str(CONFIG.get("SHARED_SKILLS_DIR") or "~/.agents/skills")).expanduser()
+    gemini_skills_dir = Path(str(CONFIG.get("GEMINI_SKILLS_DIR") or "~/.gemini/skills")).expanduser()
     root = _project_root()
     now = _utc_now()
     return [
@@ -111,8 +110,8 @@ def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
         ("openclaw_memory", "external", str(openclaw_home / "workspace" / "memory"), "OpenClaw memory markdown directory.", "seed", now),
         ("openclaw_workspace", "external", str(openclaw_home / "workspace"), "OpenClaw main workspace.", "seed", now),
         ("openclaw_scripts", "external", str(openclaw_home / "workspace" / "scripts"), "OpenClaw helper scripts and cron-related utilities.", "seed", now),
-        ("agents_skills", "external", str(agents_home / "skills"), "Shared Codex/Gemini skills directory.", "seed", now),
-        ("gemini_skills", "external", str(gemini_home / "skills"), "Gemini-specific skill directory.", "seed", now),
+        ("agents_skills", "external", str(shared_skills_dir), "Shared Codex/Gemini skills directory.", "seed", now),
+        ("gemini_skills", "external", str(gemini_skills_dir), "Gemini-specific skill directory.", "seed", now),
     ]
 
 

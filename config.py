@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 CONFIG = {
+    "BISHOP_BRAND_NAME": os.getenv("BISHOP_BRAND_NAME", "BISHOP"),
     "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN"),
     "SLACK_APP_TOKEN": os.getenv("SLACK_APP_TOKEN"),
     "SLACK_SIGNING_SECRET": os.getenv("SLACK_SIGNING_SECRET"),
@@ -13,6 +14,10 @@ CONFIG = {
     "PRIMARY_LLM": os.getenv("PRIMARY_LLM", "gemini"),
     "SECONDARY_LLM": os.getenv("SECONDARY_LLM", "openai"),
     "PROJECT_ROOT_DIR": os.getenv("PROJECT_ROOT_DIR", os.getcwd()),
+    "HERMES_HOME": os.getenv("HERMES_HOME", os.path.expanduser("~/.hermes")),
+    "OPENCLAW_HOME": os.getenv("OPENCLAW_HOME", os.path.expanduser("~/.openclaw")),
+    "SHARED_SKILLS_DIR": os.getenv("SHARED_SKILLS_DIR", os.path.expanduser("~/.agents/skills")),
+    "GEMINI_SKILLS_DIR": os.getenv("GEMINI_SKILLS_DIR", os.path.expanduser("~/.gemini/skills")),
     "REDIS_URL": os.getenv("REDIS_URL"),
     "TASK_QUEUE_NAME": os.getenv("TASK_QUEUE_NAME", "bishopbot_tasks"),
     "GITHUB_TOKEN": os.getenv("GITHUB_TOKEN"),
