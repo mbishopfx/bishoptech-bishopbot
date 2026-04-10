@@ -1,4 +1,4 @@
-from services import openai_service, reply_service
+from services import agent_context_service, openai_service, reply_service
 from services.runtime_adapters import get_runtime_adapter, parse_runtime_invocation
 from services.task_planner import TaskPlanner
 from services.terminal_session_manager import TerminalSessionManager
@@ -11,6 +11,7 @@ def handle_cli_command(input_text, response_url=None, user_id=None, mode="gemini
         adapter = get_runtime_adapter(resolved_runtime)
         selected_mode = adapter.resolve_launch_mode(launch_mode)
         effective_input = normalized_input or input_text
+        agent_context_service.ensure_context_assets()
 
         # 1. Use OpenAI GPT-4o to process the message
         refined_input = openai_service.process_message(effective_input)
@@ -35,10 +36,14 @@ def handle_cli_command(input_text, response_url=None, user_id=None, mode="gemini
                 f"🚀 *{adapter.label} automation starting for {who}...*{mode_line}\n{summary}"
             )
 
-        if get_runtime_adapter(resolved_runtime).prompt_transport(launch_mode=selected_mode.key if selected_mode else None) == "stdin":
-            initial_command = effective_input
-        else:
-            initial_command = TaskPlanner.build_cli_prompt(refined_input, tasks, mode=resolved_runtime)
+        prompt_context = agent_context_service.build_prompt_context()
+        initial_command = TaskPlanner.build_cli_prompt(
+            refined_input,
+            tasks,
+            mode=resolved_runtime,
+            context_block=prompt_context,
+            original_request=effective_input,
+        )
 
         # 3. Start Terminal Session via Manager
         session_id = TerminalSessionManager.start_session(
@@ -49,6 +54,8 @@ def handle_cli_command(input_text, response_url=None, user_id=None, mode="gemini
             tasks=tasks,
             agent_mode=resolved_runtime,
             launch_mode=selected_mode.key if selected_mode else None,
+            original_request=effective_input,
+            refined_request=refined_input,
         )
         
         if session_id:

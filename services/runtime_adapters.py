@@ -234,9 +234,20 @@ class RuntimeAdapter:
 
         return " ; ".join(segments)
 
-    def build_initial_prompt(self, refined_instruction: str, tasks: Optional[List[str]] = None) -> str:
+    def build_initial_prompt(
+        self,
+        refined_instruction: str,
+        tasks: Optional[List[str]] = None,
+        context_block: Optional[str] = None,
+        original_request: Optional[str] = None,
+    ) -> str:
         task_lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks or []))
-        sections = [self.prompt_preamble.strip(), "", f"Refined request:\n{refined_instruction.strip()}"]
+        sections = [self.prompt_preamble.strip()]
+        if context_block:
+            sections.extend(["", f"Persistent context:\n{context_block.strip()}"])
+        if original_request and original_request.strip() and original_request.strip() != refined_instruction.strip():
+            sections.extend(["", f"Original user request:\n{original_request.strip()}"])
+        sections.extend(["", f"Refined request:\n{refined_instruction.strip()}"])
         if task_lines:
             sections.extend(["", f"Execution plan:\n{task_lines}"])
         return "\n".join(section for section in sections if section is not None).strip()

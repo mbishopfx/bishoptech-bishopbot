@@ -89,6 +89,64 @@ class TerminalMonitoringTests(unittest.TestCase):
                 self.assertFalse(session["active"])
                 self.assertTrue(mock_send_status.called)
 
+    @patch("services.terminal_session_manager.agent_context_service.update_session_status")
+    @patch("services.terminal_session_manager.TerminalSessionManager.send_status_to_slack")
+    @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")
+    def test_poll_loop_persists_session_status_transitions(self, mock_snapshot, mock_send_status, mock_update_status):
+        session_id = "sessctx1"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(CONFIG, {"SESSION_LOG_DIR": tmpdir}, clear=False):
+                SESSIONS[session_id] = {
+                    "window_id": "123",
+                    "response_url": "slack:C123:1712345678.123456",
+                    "user_id": "U123",
+                    "last_output": "",
+                    "last_raw_output": "",
+                    "last_summary_output": "",
+                    "active": True,
+                    "start_time": time.time(),
+                    "last_poll_time": time.time(),
+                    "status": "booting",
+                    "needs_input": False,
+                    "completed_at": None,
+                    "runtime": "codex",
+                    "runtime_label": "Codex",
+                    "launch_mode": "full-auto",
+                    "launch_mode_label": "Full Auto",
+                    "launch_command": "codex exec --full-auto",
+                    "prompt_transport": "argv",
+                    "boot_delay_seconds": 0,
+                    "runtime_metadata": {"controls": {"supports_interactive_controls": False}},
+                    "terminal_exists": True,
+                    "terminal_busy": False,
+                    "completed_task_count": 0,
+                    "final_summary": None,
+                    "tasks": ["one", "two"],
+                    "agent_mode": "codex",
+                    "current_task_index": 0,
+                    "plan_text": "1. one\n2. two",
+                }
+                from services import session_log_service, session_state_service
+                SESSIONS[session_id]["log_path"] = session_log_service.initialize_session_log(session_id, SESSIONS[session_id])
+                SESSIONS[session_id]["state_path"] = session_state_service.initialize_session_state(session_id, runtime="codex", launch_mode="full-auto")
+                SESSIONS[session_id]["output_path"] = session_output_service.initialize_session_output(session_id)
+                mock_snapshot.return_value = TerminalSnapshot(
+                    window_id="123",
+                    exists=True,
+                    busy=False,
+                    contents="TASK 2 COMPLETE\nSESSION COMPLETE shipped it\n__BISHOPBOT_RUNTIME_EXIT__:codex:0\n",
+                )
+
+                with patch.object(TerminalSessionManager, "_tail_lines_for_target", return_value=2):
+                    TerminalSessionManager._poll_loop(session_id)
+
+                mock_update_status.assert_any_call(
+                    session_id,
+                    status="completed",
+                    response_target="slack:C123:1712345678.123456",
+                    final_summary="shipped it",
+                )
+
     @patch("services.terminal_session_manager.session_link_service.set_slack_thread_session")
     @patch("services.terminal_session_manager.slack_service.send_target_message")
     def test_send_status_to_slack_creates_thread_root_for_slack_channel_targets(self, mock_send_target, mock_set_thread):

@@ -1,6 +1,9 @@
 .venv/
 .vscode/
 logs/
+agent-context/memory.sqlite
+agent-context/memory.sqlite-shm
+agent-context/memory.sqlite-wal
 token.json
 knowledge_base.json
 dump.rdb

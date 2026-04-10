@@ -3,7 +3,7 @@ import uuid
 import threading
 import shlex
 from datetime import datetime, timezone
-from services import shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service, slack_service
+from services import agent_context_service, shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service, slack_service
 from services.runtime_adapters import get_runtime_adapter
 from config import CONFIG
 
@@ -15,7 +15,17 @@ class TerminalSessionManager:
     SESSIONS = SESSIONS
 
     @staticmethod
-    def start_session(user_id, response_url, initial_command, plan_text="", tasks=None, agent_mode="gemini", launch_mode=None):
+    def start_session(
+        user_id,
+        response_url,
+        initial_command,
+        plan_text="",
+        tasks=None,
+        agent_mode="gemini",
+        launch_mode=None,
+        original_request=None,
+        refined_request=None,
+    ):
         """Starts a runtime-aware terminal session and kicks off monitoring."""
         session_id = str(uuid.uuid4())[:8]
         adapter = get_runtime_adapter(agent_mode)
@@ -111,7 +121,20 @@ class TerminalSessionManager:
         SESSIONS[session_id]["tasks"] = tasks or []
         SESSIONS[session_id]["agent_mode"] = adapter.key
         SESSIONS[session_id]["current_task_index"] = 0
+        SESSIONS[session_id]["original_request"] = original_request
+        SESSIONS[session_id]["refined_request"] = refined_request
         SESSIONS[session_id]["log_path"] = session_log_service.initialize_session_log(session_id, SESSIONS[session_id])
+
+        agent_context_service.record_session_start(
+            session_id,
+            runtime=adapter.key,
+            launch_mode=effective_launch_mode,
+            user_id=user_id,
+            response_target=response_url,
+            original_request=original_request,
+            refined_request=refined_request,
+            plan_text=plan_text,
+        )
 
         # Keep a per-user "last session" pointer (used by WhatsApp controls like !enter).
         if user_id and session_id:
@@ -153,6 +176,8 @@ class TerminalSessionManager:
         while session_id in SESSIONS and SESSIONS[session_id]["active"]:
             session = SESSIONS[session_id]
             adapter = get_runtime_adapter(session.get("runtime"))
+            previous_status = session.get("status")
+            previous_final_summary = session.get("final_summary")
             try:
                 close_recovery_grace = max(0, int(str(CONFIG.get("TERMINAL_CLOSE_RECOVERY_GRACE_SECONDS", "20"))))
             except Exception:
@@ -227,6 +252,14 @@ class TerminalSessionManager:
                 session["status"] = "settled"
             else:
                 session["status"] = "running"
+
+            if session.get("status") != previous_status or session.get("final_summary") != previous_final_summary:
+                agent_context_service.update_session_status(
+                    session_id,
+                    status=session.get("status", "running"),
+                    response_target=session.get("response_url"),
+                    final_summary=session.get("final_summary"),
+                )
 
             if current_output and current_output != session["last_output"]:
                 TerminalSessionManager.send_status_to_slack(session_id, current_output, needs_input=needs_input)
@@ -545,6 +578,12 @@ class TerminalSessionManager:
                     thread_target = f"slack:{channel_id}:{response['ts']}"
                     session["response_url"] = thread_target
                     session_link_service.set_slack_thread_session(channel_id, response["ts"], session_id)
+                    agent_context_service.update_session_status(
+                        session_id,
+                        status=session.get("status", "running"),
+                        response_target=thread_target,
+                        final_summary=session.get("final_summary"),
+                    )
                 return
 
         blocks = [
@@ -634,6 +673,12 @@ class TerminalSessionManager:
             session["active"] = False
             if session.get("status") not in {"completed", "timed_out"}:
                 session["status"] = "closed"
+            agent_context_service.update_session_status(
+                session_id,
+                status=session.get("status", "closed"),
+                response_target=session.get("response_url"),
+                final_summary=session.get("final_summary"),
+            )
             session_log_service.append_event(
                 session_id,
                 "Session closed",

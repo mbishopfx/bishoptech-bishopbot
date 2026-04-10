@@ -61,11 +61,25 @@ class TaskPlanner:
         return f"{header}\n{lines}\n\nExecution will start immediately in {execution_mode}."
 
     @staticmethod
-    def build_cli_prompt(refined_instruction: str, tasks: list[str], mode: str = "gemini"):
+    def build_cli_prompt(
+        refined_instruction: str,
+        tasks: list[str],
+        mode: str = "gemini",
+        *,
+        context_block: str | None = None,
+        original_request: str | None = None,
+    ):
         adapter = get_runtime_adapter(mode)
-        base_prompt = adapter.build_initial_prompt(refined_instruction, tasks)
+        base_prompt = adapter.build_initial_prompt(
+            refined_instruction,
+            tasks,
+            context_block=context_block,
+            original_request=original_request,
+        )
         execution_suffix = (
             "\n\nWhen you finish each step, print \"TASK {step_number} COMPLETE\" and keep going. "
+            "Only if you learn a durable, reusable fact, update `agent-context/vibes.md` and record it in the SQLite memory using `./scripts/agent_memory.py note ...` or direct sqlite. "
+            "The session lifecycle is already tracked automatically, so do not spam the memory DB with routine progress. "
             "After all steps succeed, run `git status`, commit any changes with a descriptive message if there are staged files, and push to the current remote if appropriate. "
             "Then print \"SESSION COMPLETE\" on its own line followed by the final summary."
         )
