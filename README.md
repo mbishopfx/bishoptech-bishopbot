@@ -257,6 +257,7 @@ To remove it:
 - Default prompt transport: `stdin`
 - Session flow: open shell, start Gemini, wait for the actual Gemini input prompt, paste the request, submit, stream output
 - Repo behavior and stable guidance should live in `GEMINI.md`, not in a giant injected first prompt
+- The first runtime message explicitly tells Gemini to follow the project `GEMINI.md`
 
 ### Codex
 
@@ -351,7 +352,13 @@ BISHOP supports MCPs, but it does not force them into every run.
 
 - `config/mcp_registry.json` is the curated registry.
 - `agent-context/mcp_catalog_snapshot.json` is the generated searchable snapshot of the external catalog repo.
-- `.gemini/settings.json` is the actual project activation layer for Gemini MCP servers.
+- `.gemini/settings.json` is the actual project activation layer for Gemini MCP servers. It is a local generated file and is gitignored.
+
+If `.gemini/settings.json` is missing on a machine, generate it with:
+
+```bash
+./scripts/bishop_mcp.py build-gemini
+```
 
 Operationally:
 

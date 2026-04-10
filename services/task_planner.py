@@ -77,7 +77,11 @@ class TaskPlanner:
         if mode == "gemini":
             request_text = (original_request or refined_instruction).strip()
             task_lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks or []))
-            sections = [request_text]
+            sections = [
+                "Follow the project guidance in `GEMINI.md` in the current workspace for repo behavior and operating rules.",
+                "",
+                request_text,
+            ]
             if task_lines:
                 sections.extend(
                     [

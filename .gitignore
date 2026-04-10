@@ -1,6 +1,7 @@
 .venv/
 .vscode/
 logs/
+.firecrawl/
 agent-context/memory.sqlite
 agent-context/memory.sqlite-shm
 agent-context/memory.sqlite-wal
@@ -8,8 +9,12 @@ agent-context/vibes-full.md
 agent-context/mcp_catalog_snapshot.json
 token.json
 knowledge_base.json
+sync_state.json
 dump.rdb
 .env
+client_secrets.json
+client_secret_*.json
+gold_market_news_*.md
 *.pyc
 __pycache__/
 .DS_Store

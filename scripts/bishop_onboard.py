@@ -40,6 +40,7 @@ def detect_paths() -> dict[str, str]:
         "GEMINI_SKILLS_DIR": str(home / ".gemini" / "skills"),
         "BISHOP_MCP_CATALOG_DIR": str(home / "BishopTech.dev" / "bishoptech-api-mcps"),
         "BISHOP_MCP_REGISTRY_PATH": "config/mcp_registry.json",
+        "GOOGLE_CLIENT_SECRETS_PATH": "client_secrets.json",
         "REDIS_URL": "redis://localhost:6379/0",
         "TASK_QUEUE_NAME": "bishopbot_tasks",
         "BISHOP_BRAND_NAME": "BISHOP",
@@ -114,6 +115,11 @@ def doctor() -> int:
     for key in ("HERMES_HOME", "OPENCLAW_HOME", "SHARED_SKILLS_DIR", "GEMINI_SKILLS_DIR", "BISHOP_MCP_CATALOG_DIR"):
         resolved = Path(env_values.get(key) or detected[key]).expanduser()
         rows.append((key.lower(), resolved.exists(), str(resolved)))
+
+    google_client_secrets = Path(env_values.get("GOOGLE_CLIENT_SECRETS_PATH") or detected["GOOGLE_CLIENT_SECRETS_PATH"]).expanduser()
+    if not google_client_secrets.is_absolute():
+        google_client_secrets = PROJECT_ROOT / google_client_secrets
+    rows.append(("google_client_secrets_path", google_client_secrets.exists(), str(google_client_secrets)))
 
     registry_path = Path(env_values.get("BISHOP_MCP_REGISTRY_PATH") or detected["BISHOP_MCP_REGISTRY_PATH"]).expanduser()
     if not registry_path.is_absolute():
