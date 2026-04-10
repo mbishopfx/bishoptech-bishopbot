@@ -4,6 +4,8 @@ BISHOP is a lightweight Slack-controlled local operator for Gemini, Codex, Herme
 
 It is built for people who want the leverage of agent tooling without handing every task to a heavy hosted platform. BISHOP keeps the control plane local, uses the CLIs you already trust, and adds the missing glue: Slack-triggered sessions, terminal monitoring, thread-based replies, durable context, and low-friction memory.
 
+For a team-facing overview of what BISHOP is, what powers it has, and how the system fits together, see [docs/BISHOP_SYSTEM.md](/Users/matthewbishop/BishopBot/docs/BISHOP_SYSTEM.md).
+
 ## What BISHOP does
 
 - Opens real local terminal sessions from Slack commands.
