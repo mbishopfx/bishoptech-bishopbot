@@ -181,6 +181,7 @@ function AsciiBackdrop() {
 }
 
 export function DashboardShell() {
+  const bootstrappedRef = useRef(false);
   const pollLockRef = useRef(false);
   const [view, setView] = useState<ViewKey>("launch");
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -234,7 +235,7 @@ export function DashboardShell() {
     if (overviewOk || sessionsOk) {
       setConnectionIssue("");
       setLastSyncedAt(new Date().toLocaleTimeString());
-      return;
+      return sessionsOk ? sessionsResult.value.sessions : sessions;
     }
 
     const message =
@@ -249,6 +250,7 @@ export function DashboardShell() {
     if (!silent || (!overview && sessions.length === 0)) {
       setConnectionIssue(trimError(message));
     }
+    return sessions;
   });
 
   const loadSelectedSession = useEffectEvent(async (sessionId: string, silent = false) => {
@@ -271,6 +273,10 @@ export function DashboardShell() {
   });
 
   useEffect(() => {
+    if (bootstrappedRef.current) {
+      return;
+    }
+    bootstrappedRef.current = true;
     startTransition(() => {
       void loadLiveData(false);
       void loadReferenceData();
@@ -294,18 +300,18 @@ export function DashboardShell() {
       startTransition(() => {
         void Promise.all([
           loadLiveData(true),
-          selectedSessionId ? loadSelectedSession(selectedSessionId, true) : Promise.resolve(),
-          tick % 4 === 0 ? loadReferenceData() : Promise.resolve(),
+          view === "sessions" && selectedSessionId ? loadSelectedSession(selectedSessionId, true) : Promise.resolve(),
+          (view === "memory" || view === "paths") && tick % 6 === 0 ? loadReferenceData() : Promise.resolve(),
         ]).finally(() => {
           pollLockRef.current = false;
         });
       });
-    }, 7000);
+    }, view === "sessions" ? 9000 : 18000);
     return () => {
       window.clearInterval(id);
       pollLockRef.current = false;
     };
-  }, [loadLiveData, loadReferenceData, loadSelectedSession, selectedSessionId]);
+  }, [loadLiveData, loadReferenceData, loadSelectedSession, selectedSessionId, view]);
 
   const selectedSessionSummary = sessions.find((session) => session.session_id === selectedSessionId) ?? null;
 
@@ -326,8 +332,22 @@ export function DashboardShell() {
         }),
       });
       setBanner(`Queued ${composerCommand} as ${payload.job_id}`);
+      setConnectionIssue("");
       setComposerText("");
-      startTransition(() => void loadLiveData(true));
+      setView("sessions");
+      window.setTimeout(() => {
+        startTransition(() => {
+          void (async () => {
+            const latestSessions = await loadLiveData(true);
+            const nextSession =
+              latestSessions?.find((session) => session.user_id === "dashboard") ?? latestSessions?.[0] ?? null;
+            if (nextSession?.session_id) {
+              setSelectedSessionId(nextSession.session_id);
+              await loadSelectedSession(nextSession.session_id, true);
+            }
+          })();
+        });
+      }, 700);
     } catch (error) {
       setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to queue command.");
     } finally {
@@ -348,7 +368,9 @@ export function DashboardShell() {
         body: JSON.stringify({ text: sessionInput.trim() }),
       });
       setBanner(`Queued follow-up as ${payload.job_id}`);
+      setConnectionIssue("");
       setSessionInput("");
+      startTransition(() => void loadSelectedSession(selectedSessionId, true));
     } catch (error) {
       setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to send follow-up.");
     } finally {
