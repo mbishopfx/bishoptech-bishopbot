@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from config import CONFIG
+from services import mcp_registry_service
 
 
 MAX_VIBES_CHARS = 4000
@@ -42,6 +43,14 @@ def memory_db_path() -> Path:
 
 def memory_script_path() -> Path:
     return _project_root() / "scripts" / "agent_memory.py"
+
+
+def mcp_registry_path() -> Path:
+    return mcp_registry_service.registry_path()
+
+
+def mcp_catalog_snapshot_path() -> Path:
+    return mcp_registry_service.catalog_snapshot_path()
 
 
 def _connect() -> sqlite3.Connection:
@@ -108,6 +117,9 @@ def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
         ("bishopbot_vibes_full", "context", str(vibes_full_path()), "Generated environment map used to keep runtime prompts compact.", "seed", now),
         ("bishopbot_memory_db", "context", str(memory_db_path()), "SQLite database for session tracking, durable notes, and known resource paths.", "seed", now),
         ("bishopbot_memory_script", "tool", str(memory_script_path()), "Helper CLI for viewing resources and writing durable notes into the memory DB.", "seed", now),
+        ("bishopbot_mcp_registry", "context", str(mcp_registry_path()), "Curated BISHOP MCP registry with placeholders and enable flags.", "seed", now),
+        ("bishopbot_mcp_catalog_snapshot", "context", str(mcp_catalog_snapshot_path()), "Generated searchable snapshot of the external MCP catalog repo.", "seed", now),
+        ("bishopbot_gemini_settings", "context", str(mcp_registry_service.gemini_settings_path()), "Project Gemini settings file used for MCP server activation.", "seed", now),
         ("hermes_home", "external", str(hermes_home), "Hermes home directory.", "seed", now),
         ("hermes_config", "external", str(hermes_home / "config.yaml"), "Hermes runtime configuration.", "seed", now),
         ("hermes_state_db", "external", str(hermes_home / "state.db"), "Hermes SQLite state database.", "seed", now),
@@ -122,6 +134,10 @@ def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
     ]
     if openclaw_soul:
         rows.append(("openclaw_soul", "external", openclaw_soul, "Optional OpenClaw tone file.", "seed", now))
+    if mcp_registry_service.catalog_repo_path().exists():
+        rows.append(("bishopbot_mcp_catalog_repo", "external", str(mcp_registry_service.catalog_repo_path()), "External BishopTech API/MCP source catalog repo.", "seed", now))
+    if mcp_registry_service.project_gemini_md_path().exists():
+        rows.append(("bishopbot_gemini_md", "context", str(mcp_registry_service.project_gemini_md_path()), "Project-level GEMINI.md instructions for the current repo.", "seed", now))
     return rows
 
 
@@ -229,6 +245,7 @@ def _refresh_vibes_full(resources: Iterable[sqlite3.Row], notes: Iterable[sqlite
 def ensure_context_assets():
     context_root()
     _ensure_vibes_file()
+    mcp_registry_service.ensure_registry_files()
     with _connect() as conn:
         _ensure_schema(conn)
         _seed_resources(conn)
@@ -280,6 +297,7 @@ def build_prompt_context() -> str:
         for row in notes
     ) or "- No durable notes yet."
     soul_path = _openclaw_soul_path() or "null"
+    mcp_summary = mcp_registry_service.registry_summary()
 
     return (
         "Persistent operator context is available for this session.\n"
@@ -287,12 +305,20 @@ def build_prompt_context() -> str:
         f"- Core vibes live in `{vibes_path()}`.\n"
         f"- Memory DB: `{memory_db_path()}`\n"
         f"- Memory helper: `{memory_script_path()}`\n"
+        f"- MCP registry: `{mcp_registry_path()}`\n"
+        f"- MCP catalog snapshot: `{mcp_catalog_snapshot_path()}`\n"
+        f"- Project Gemini settings: `{mcp_registry_service.gemini_settings_path()}`\n"
+        f"- Project GEMINI.md: `{mcp_registry_service.project_gemini_md_path()}`\n"
         f"- OpenClaw soul reference: `{soul_path}`\n\n"
+        "MCP state:\n"
+        f"- Catalog repo: `{mcp_summary['catalog_source_dir']}`\n"
+        f"- Catalog entries: {mcp_summary['catalog_mcp_count']}\n"
+        f"- Enabled project MCP servers: {mcp_summary['enabled_server_count']}\n\n"
         "Current vibes.md excerpt:\n"
         f"{_read_vibes_excerpt()}\n\n"
         "Recent durable notes:\n"
         f"{note_lines}\n\n"
-        "Use this context when relevant. At the end of the task, update `vibes.md` only for stable guidance changes and add a durable note to the memory DB only when the new fact will help future sessions."
+        "Use this context when relevant. If a task needs MCP tools, inspect the MCP registry and project Gemini settings before assuming a server is active. At the end of the task, update `vibes.md` only for stable guidance changes and add a durable note to the memory DB only when the new fact will help future sessions."
     )
 
 

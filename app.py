@@ -8,7 +8,7 @@ from config import CONFIG
 import threading
 from http.server import HTTPServer
 from bishop_meta.http_handler import UnifiedHealthAndWhatsAppHandler
-from services import session_link_service
+from services import gemini_chat_service, session_link_service, slack_service
 
 def _start_slack_socket_mode():
     """
@@ -24,6 +24,8 @@ def _start_slack_socket_mode():
     from slack_bolt.adapter.socket_mode import SocketModeHandler
 
     app = App(token=slack_bot_token)
+    auth_info = app.client.auth_test()
+    bot_user_id = auth_info.get("user_id")
 
     # Initialize Redis and Queue
     redis_conn = Redis.from_url(CONFIG["REDIS_URL"])
@@ -162,6 +164,43 @@ def _start_slack_socket_mode():
             response_url=f"slack:{channel_id}:{thread_ts}",
             send_ack=False,
         )
+
+    @app.event("app_mention")
+    def handle_app_mention(event, say, logger=None):
+        if event.get("subtype") or event.get("bot_id"):
+            return
+
+        channel_id = event.get("channel")
+        message_ts = event.get("ts")
+        thread_ts = event.get("thread_ts") or message_ts
+        user_id = event.get("user")
+        text = (event.get("text") or "").strip()
+
+        if not channel_id or not user_id or not text:
+            return
+
+        if thread_ts and session_link_service.get_slack_thread_session(channel_id, thread_ts):
+            return
+
+        cleaned_text = text.replace(f"<@{bot_user_id}>", "").strip() if bot_user_id else text
+        if not cleaned_text:
+            slack_service.post_message(
+                "Use `@BISHOP` for brainstorming, or `/cli` and `/codex` for terminal execution.",
+                channel=channel_id,
+                thread_ts=thread_ts,
+            )
+            return
+
+        try:
+            reply = gemini_chat_service.generate_chat_reply(cleaned_text, user_id=user_id)
+        except Exception as exc:
+            reply = (
+                "Mention chat is unavailable right now.\n"
+                f"Reason: {exc}\n"
+                "Use `/cli` or `/codex` if you want the terminal execution path."
+            )
+
+        slack_service.post_message(reply, channel=channel_id, thread_ts=thread_ts)
 
     print("📡 Starting Slack Socket Mode handler...")
     SocketModeHandler(app, slack_app_token).start()

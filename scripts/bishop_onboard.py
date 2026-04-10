@@ -38,6 +38,8 @@ def detect_paths() -> dict[str, str]:
         "OPENCLAW_HOME": str(home / ".openclaw"),
         "SHARED_SKILLS_DIR": str(home / ".agents" / "skills"),
         "GEMINI_SKILLS_DIR": str(home / ".gemini" / "skills"),
+        "BISHOP_MCP_CATALOG_DIR": str(home / "BishopTech.dev" / "bishoptech-api-mcps"),
+        "BISHOP_MCP_REGISTRY_PATH": "config/mcp_registry.json",
         "REDIS_URL": "redis://localhost:6379/0",
         "TASK_QUEUE_NAME": "bishopbot_tasks",
         "BISHOP_BRAND_NAME": "BISHOP",
@@ -109,9 +111,14 @@ def doctor() -> int:
         ("npm", shutil.which("npm") is not None, shutil.which("npm") or "not found"),
     ]
 
-    for key in ("HERMES_HOME", "OPENCLAW_HOME", "SHARED_SKILLS_DIR", "GEMINI_SKILLS_DIR"):
+    for key in ("HERMES_HOME", "OPENCLAW_HOME", "SHARED_SKILLS_DIR", "GEMINI_SKILLS_DIR", "BISHOP_MCP_CATALOG_DIR"):
         resolved = Path(env_values.get(key) or detected[key]).expanduser()
         rows.append((key.lower(), resolved.exists(), str(resolved)))
+
+    registry_path = Path(env_values.get("BISHOP_MCP_REGISTRY_PATH") or detected["BISHOP_MCP_REGISTRY_PATH"]).expanduser()
+    if not registry_path.is_absolute():
+        registry_path = PROJECT_ROOT / registry_path
+    rows.append(("bishop_mcp_registry_path", registry_path.exists(), str(registry_path)))
 
     required_env = ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_SIGNING_SECRET")
     for key in required_env:
@@ -130,6 +137,9 @@ def doctor() -> int:
     print("- Install or repair the full local stack with `./install.sh`")
     print("- Start the full local stack with `./start.sh`")
     print("- Dashboard will be served at http://localhost:3113 unless BISHOP_DASHBOARD_PORT overrides it")
+    print("- Initialize MCP scaffolding with `./scripts/bishop_mcp.py init`")
+    print("- Search the synced MCP catalog with `./scripts/bishop_mcp.py search github`")
+    print("- Build project Gemini MCP settings with `./scripts/bishop_mcp.py build-gemini`")
 
     critical_ok = all(ok for _, ok, _ in rows[:5])
     return 0 if critical_ok else 1

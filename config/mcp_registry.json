@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "catalog": {
+    "source_dir": "${BISHOP_MCP_CATALOG_DIR}",
+    "notes": "The live synced catalog is written to agent-context/mcp_catalog_snapshot.json."
+  },
+  "notes": [
+    "This file is BISHOP's curated MCP registry.",
+    "Keep placeholders here until you are ready to enable a real MCP server connection.",
+    "Only entries with enabled=true and a real command/url are written into .gemini/settings.json."
+  ],
+  "servers": [
+    {
+      "key": "github",
+      "label": "GitHub MCP",
+      "enabled": false,
+      "category": "development",
+      "source_url": "https://apify.com/nexgendata/github-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "GITHUB_PERSONAL_ACCESS_TOKEN"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+        }
+      },
+      "notes": "Recommended for repo search, PR workflows, and code intelligence."
+    },
+    {
+      "key": "web_search",
+      "label": "Web Search MCP",
+      "enabled": false,
+      "category": "research",
+      "source_url": "https://apify.com/abotapi/ai-search-mcp-server?fpr=p2hrc6",
+      "required_env": [],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {}
+      },
+      "notes": "Useful for live search and citation-aware browsing from Gemini sessions."
+    },
+    {
+      "key": "google_maps",
+      "label": "Google Maps MCP",
+      "enabled": false,
+      "category": "local-intelligence",
+      "source_url": "https://apify.com/nexgendata/google-maps-mcp-server?fpr=p2hrc6",
+      "required_env": [],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {}
+      },
+      "notes": "Strong fit for local lead generation and business validation workflows."
+    },
+    {
+      "key": "seo_intelligence",
+      "label": "SEO Intelligence MCP",
+      "enabled": false,
+      "category": "marketing",
+      "source_url": "https://apify.com/alizarin_refrigerator-owner/seo-intelligence-mcp-server?fpr=p2hrc6",
+      "required_env": [],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {}
+      },
+      "notes": "Good fit for SEO, site audits, and local search intelligence."
+    },
+    {
+      "key": "airtable",
+      "label": "Airtable MCP",
+      "enabled": false,
+      "category": "operations",
+      "source_url": "https://apify.com/minute_contest/airtable-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "AIRTABLE_API_KEY"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "AIRTABLE_API_KEY": "${AIRTABLE_API_KEY}"
+        }
+      },
+      "notes": "Use when a project depends on Airtable-backed workflows or ops state."
+    },
+    {
+      "key": "asana",
+      "label": "Asana MCP",
+      "enabled": false,
+      "category": "operations",
+      "source_url": "https://apify.com/scraper_guru/asana-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "ASANA_ACCESS_TOKEN"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "ASANA_ACCESS_TOKEN": "${ASANA_ACCESS_TOKEN}"
+        }
+      },
+      "notes": "Good for PM workflows and task state inspection."
+    },
+    {
+      "key": "clickup",
+      "label": "ClickUp MCP",
+      "enabled": false,
+      "category": "operations",
+      "source_url": "https://apify.com/minute_contest/clickup-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "CLICKUP_API_TOKEN"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "CLICKUP_API_TOKEN": "${CLICKUP_API_TOKEN}"
+        }
+      },
+      "notes": "Use for task orchestration, sprint boards, and project execution visibility."
+    },
+    {
+      "key": "confluence",
+      "label": "Confluence MCP",
+      "enabled": false,
+      "category": "knowledge",
+      "source_url": "https://apify.com/scraper_guru/confluence-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "CONFLUENCE_API_TOKEN"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "CONFLUENCE_API_TOKEN": "${CONFLUENCE_API_TOKEN}"
+        }
+      },
+      "notes": "Useful when project context and SOPs live in Confluence."
+    },
+    {
+      "key": "trello",
+      "label": "Trello MCP",
+      "enabled": false,
+      "category": "operations",
+      "source_url": "https://apify.com/scraper_guru/trello-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "TRELLO_API_KEY",
+        "TRELLO_TOKEN"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "TRELLO_API_KEY": "${TRELLO_API_KEY}",
+          "TRELLO_TOKEN": "${TRELLO_TOKEN}"
+        }
+      },
+      "notes": "Useful for board state, task movement, and project command flows."
+    },
+    {
+      "key": "wordpress",
+      "label": "WordPress MCP",
+      "enabled": false,
+      "category": "content",
+      "source_url": "https://apify.com/extremescrapes/wordpress-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "WORDPRESS_BASE_URL",
+        "WORDPRESS_USERNAME",
+        "WORDPRESS_APP_PASSWORD"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "WORDPRESS_BASE_URL": "${WORDPRESS_BASE_URL}",
+          "WORDPRESS_USERNAME": "${WORDPRESS_USERNAME}",
+          "WORDPRESS_APP_PASSWORD": "${WORDPRESS_APP_PASSWORD}"
+        }
+      },
+      "notes": "Strong fit for CMS publishing and content operations."
+    },
+    {
+      "key": "webflow",
+      "label": "Webflow MCP",
+      "enabled": false,
+      "category": "content",
+      "source_url": "https://apify.com/minute_contest/webflow-mcp-server?fpr=p2hrc6",
+      "required_env": [
+        "WEBFLOW_API_TOKEN"
+      ],
+      "connection": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {
+          "WEBFLOW_API_TOKEN": "${WEBFLOW_API_TOKEN}"
+        }
+      },
+      "notes": "Useful for site content, CMS collections, and page operations."
+    }
+  ]
+}

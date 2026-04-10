@@ -6,6 +6,23 @@ It is built for people who want the leverage of agent tooling without handing ev
 
 For a team-facing overview of what BISHOP is, what powers it has, and how the system fits together, see [docs/BISHOP_SYSTEM.md](/Users/matthewbishop/BishopBot/docs/BISHOP_SYSTEM.md).
 
+Additional team docs:
+
+- [docs/BISHOP_USE_CASES.md](/Users/matthewbishop/BishopBot/docs/BISHOP_USE_CASES.md)
+- [docs/GEMINI_MCP_PROJECTS.md](/Users/matthewbishop/BishopBot/docs/GEMINI_MCP_PROJECTS.md)
+
+MCP tooling:
+
+- `./scripts/bishop_mcp.py init`
+- `./scripts/bishop_mcp.py sync-catalog`
+- `./scripts/bishop_mcp.py search <query>`
+- `./scripts/bishop_mcp.py build-gemini`
+
+Slack chat modes:
+
+- `@BISHOP` in Slack for lightweight Gemini brainstorming chat
+- `/cli` and `/codex` for real terminal execution
+
 ## What BISHOP does
 
 - Opens real local terminal sessions from Slack commands.

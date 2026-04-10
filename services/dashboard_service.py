@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from config import CONFIG
-from services import agent_context_service, session_log_service, session_output_service, session_state_service
+from services import agent_context_service, mcp_registry_service, session_log_service, session_output_service, session_state_service
 
 
 ACTIVE_STATUSES = {"booting", "running", "waiting_for_input", "attention_needed", "settled"}
@@ -49,6 +49,9 @@ def _paths_payload() -> dict[str, str]:
         "openclaw_home": str(Path(str(CONFIG.get("OPENCLAW_HOME") or "~/.openclaw")).expanduser()),
         "shared_skills_dir": str(Path(str(CONFIG.get("SHARED_SKILLS_DIR") or "~/.agents/skills")).expanduser()),
         "gemini_skills_dir": str(Path(str(CONFIG.get("GEMINI_SKILLS_DIR") or "~/.gemini/skills")).expanduser()),
+        "mcp_catalog_dir": str(mcp_registry_service.catalog_repo_path()),
+        "mcp_registry": str(mcp_registry_service.registry_path()),
+        "gemini_settings": str(mcp_registry_service.gemini_settings_path()),
     }
 
 
