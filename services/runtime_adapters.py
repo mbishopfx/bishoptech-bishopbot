@@ -195,7 +195,7 @@ class RuntimeAdapter:
                 "exit $EXIT_CODE",
             ])
             wrapped_command = "; ".join(command_segments)
-            return f"zsh -lc {shlex.quote(wrapped_command)}"
+            return wrapped_command
 
         command_segments.extend([
             f"printf '%s\\n' {label}",
@@ -412,7 +412,7 @@ RUNTIME_ADAPTERS: Dict[str, RuntimeAdapter] = {
     "gemini": RuntimeAdapter(
         key="gemini",
         label="Gemini",
-        binary="gemini",
+        binary="/opt/homebrew/bin/gemini",
         cli_args_config_key="GEMINI_CLI_ARGS",
         default_cli_args="--yolo",
         boot_delay_config_key="GEMINI_BOOT_DELAY_SECONDS",
