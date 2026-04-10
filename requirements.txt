@@ -4,3 +4,4 @@ slack-bolt
 python-dotenv
 requests
 aiohttp
+openai>=2,<3
