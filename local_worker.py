@@ -4,7 +4,7 @@ os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
 import time
 from redis import Redis
-from rq import Worker, Queue, Connection, SimpleWorker
+from rq import Worker, Queue, SimpleWorker
 from config import CONFIG
 from handlers import cli_handler, google_handler, research_handler
 from services.reply_service import send as send_delayed_message
@@ -55,13 +55,19 @@ def process_terminal_input(session_id, input_text, user_id, response_url):
     
     if input_text == "STATUS":
         snap = TerminalSessionManager.snapshot(session_id)
-        msg = f"📟 Session `{session_id}` status:\n```\n{snap or '(no output)'}\n```"
+        session = TerminalSessionManager.SESSIONS.get(session_id, {})
+        runtime_label = session.get("runtime_label", "Agent")
+        msg = f"📟 {runtime_label} session `{session_id}` status:\n```\n{snap or '(no output)'}\n```"
         send_delayed_message(response_url, msg)
         return
 
     if input_text == "STOP":
+        runtime_label = "Agent"
+        session = TerminalSessionManager.SESSIONS.get(session_id) if hasattr(TerminalSessionManager, "SESSIONS") else None
+        if session:
+            runtime_label = session.get("runtime_label", runtime_label)
         success = TerminalSessionManager.close_session(session_id)
-        msg = f"🛑 *Gemini Session `{session_id}` Stopped* by <@{user_id}>"
+        msg = f"🛑 *{runtime_label} Session `{session_id}` Stopped* by <@{user_id}>"
     else:
         success = TerminalSessionManager.send_input(session_id, input_text)
         msg = f"⌨️ Sent `{input_text}` to session `{session_id}`" if success else f"❌ Failed to send input to session `{session_id}`"
@@ -79,13 +85,13 @@ if __name__ == '__main__':
     # Connect to the SAME Redis as Railway
     try:
         conn = Redis.from_url(CONFIG["REDIS_URL"])
-        with Connection(conn):
-            # Use SimpleWorker on macOS to avoid fork() issues
-            worker_class = SimpleWorker if os.uname().sysname == 'Darwin' else Worker
-            worker = worker_class([Queue(CONFIG["TASK_QUEUE_NAME"])])
-            print(f"🤖 BishopBot Local Worker ({worker_class.__name__}) started on queue: {CONFIG['TASK_QUEUE_NAME']}")
-            print("Listening for commands from Railway/Redis...")
-            worker.work()
+        # Use SimpleWorker on macOS to avoid fork() issues
+        worker_class = SimpleWorker if os.uname().sysname == 'Darwin' else Worker
+        q = Queue(CONFIG["TASK_QUEUE_NAME"], connection=conn)
+        worker = worker_class([q], connection=conn)
+        print(f"🤖 BishopBot Local Worker ({worker_class.__name__}) started on queue: {CONFIG['TASK_QUEUE_NAME']}")
+        print("Listening for commands from Railway/Redis...")
+        worker.work()
     except Exception as e:
         print(f"Failed to start worker: {e}")
         print("Check if REDIS_URL is correct in your .env")

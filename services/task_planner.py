@@ -1,5 +1,6 @@
 import re
 from services import openai_service
+from services.runtime_adapters import get_runtime_adapter
 
 
 class TaskPlanner:
@@ -12,8 +13,8 @@ class TaskPlanner:
             "Each task should be a standalone action that Gemini can reason about and execute sequentially."
         ),
         "codex": (
-            "You are a Codex-inspired executor coaching a Gemini CLI agent. "
-            "Break the request into a numbered plan that can be fed directly into the terminal."
+            "You are a Codex CLI expert operating in high-autonomy terminal mode. "
+            "Break the request into a concise, numbered plan of terminal-level tasks that Codex can execute sequentially."
         ),
     }
 
@@ -56,19 +57,16 @@ class TaskPlanner:
             return f"{header}\n_No discrete steps could be generated; running the refined request directly._"
 
         lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks))
-        return f"{header}\n{lines}\n\nExecution will start immediately in YOLO mode."
+        execution_mode = "YOLO mode" if mode == "gemini" else "full-auto / yolo mode"
+        return f"{header}\n{lines}\n\nExecution will start immediately in {execution_mode}."
 
     @staticmethod
     def build_cli_prompt(refined_instruction: str, tasks: list[str], mode: str = "gemini"):
-        task_lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks)) or refined_instruction
-        prompt = (
-            f"You are interacting with the {mode} CLI running in YOLO automation mode. "
-            "Don't ask for confirmation or pause—execute the steps sequentially while explaining what you do.\n\n"
-            f"Refined request:\n{refined_instruction}\n\n"
-            "Plan:\n"
-            f"{task_lines}\n\n"
-            "When you finish each step, print \"TASK {step_number} COMPLETE\" and keep going. "
+        adapter = get_runtime_adapter(mode)
+        base_prompt = adapter.build_initial_prompt(refined_instruction, tasks)
+        execution_suffix = (
+            "\n\nWhen you finish each step, print \"TASK {step_number} COMPLETE\" and keep going. "
             "After all steps succeed, run `git status`, commit any changes with a descriptive message if there are staged files, and push to the current remote if appropriate. "
-            "Report the final summary once everything completes."
+            "Then print \"SESSION COMPLETE\" on its own line followed by the final summary."
         )
-        return prompt
+        return f"{base_prompt}{execution_suffix}"

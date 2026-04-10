@@ -1,7 +1,9 @@
+import os
 import os.path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+from config import CONFIG
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = [
@@ -13,6 +15,7 @@ SCOPES = [
 
 def get_credentials():
     creds = None
+    client_secrets_path = CONFIG.get("GOOGLE_CLIENT_SECRETS_PATH", "client_secrets.json")
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
@@ -25,7 +28,7 @@ def get_credentials():
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'client_secrets.json', SCOPES)
+                client_secrets_path, SCOPES)
             # Use a fixed port to avoid redirect_uri mismatches in Google Console
             # access_type='offline' and prompt='consent' ensure we get a refresh_token
             creds = flow.run_local_server(port=8080, access_type='offline', prompt='consent')

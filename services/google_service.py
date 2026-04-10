@@ -77,16 +77,20 @@ def fetch_all_calendar(creds, max_results=50, after_timestamp=None):
         start = event['start'].get('dateTime', event['start'].get('date'))
         summary = event.get('summary', 'No Title')
         description = event.get('description', '')
+        meet_link = event.get('hangoutLink', '')
         updated = event.get('updated', '')
         
         content = f"Event: {summary}\nStart: {start}\nDescription: {description}"
+        if meet_link:
+            content += f"\nMeet: {meet_link}"
         docs.append({
             "content": content, 
             "metadata": {
                 "id": event.get('id'), 
                 "type": "calendar", 
                 "summary": summary,
-                "updated": updated
+                "updated": updated,
+                "meetLink": meet_link
             }
         })
     return docs

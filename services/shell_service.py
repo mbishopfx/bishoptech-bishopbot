@@ -2,9 +2,18 @@ import subprocess
 import os
 import sys
 import io
-import time
+from dataclasses import dataclass
 from contextlib import redirect_stdout, redirect_stderr
 from config import CONFIG
+from services.runtime_adapters import get_runtime_adapter
+
+
+@dataclass
+class TerminalSnapshot:
+    window_id: str
+    exists: bool
+    busy: bool
+    contents: str = ""
 
 def run(code, cwd=None):
     if cwd is None:
@@ -16,21 +25,30 @@ def run(code, cwd=None):
     else:
         return run_python(code, cwd)
 
-def start_terminal_session(cwd=None):
+def start_terminal_session(cwd=None, runtime="gemini", initial_prompt=None, launch_mode=None, state_file=None, output_file=None):
     if cwd is None:
         cwd = CONFIG["PROJECT_ROOT_DIR"]
-    
+
+    adapter = get_runtime_adapter(runtime)
+
+    if not adapter.is_available():
+        print(f"Error starting {adapter.label} terminal: binary `{adapter.binary}` is not available on PATH")
+        return None
+
     if sys.platform == "darwin":
         try:
-            # Open Terminal, start Gemini, and return the unique window ID
-            escaped_cwd = cwd.replace('"', '\\"')
-            cli_args = CONFIG.get("GEMINI_CLI_ARGS", "").strip()
-            gemini_command = f"gemini {cli_args}".strip()
+            launch_command = adapter.launch_bootstrap_command(
+                cwd,
+                initial_prompt=initial_prompt,
+                launch_mode=launch_mode,
+                state_file=state_file,
+                output_file=output_file,
+            ).replace('"', '\\"')
 
             script = f'''
             tell application "Terminal"
                 activate
-                set newTab to do script "cd {escaped_cwd} && {gemini_command}"
+                set newTab to do script "{launch_command}"
                 delay 1
                 try
                     return id of (window of newTab)
@@ -43,7 +61,7 @@ def start_terminal_session(cwd=None):
             window_id = result.stdout.strip()
             return window_id
         except Exception as e:
-            print(f"Error starting terminal: {e}")
+            print(f"Error starting {adapter.label} terminal: {e}")
             return None
     return None
 
@@ -53,6 +71,63 @@ def run_bash(code, cwd):
         return f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     except subprocess.CalledProcessError as e:
         return f"FAILED with exit code {e.returncode}\nSTDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}"
+
+
+def get_terminal_snapshot(window_id=None):
+    """Return terminal existence/busy state plus visible contents for a specific window."""
+    if sys.platform != "darwin":
+        return TerminalSnapshot(window_id=str(window_id or ""), exists=False, busy=False, contents="Terminal capture only supported on macOS")
+
+    target = f"window id {window_id}" if window_id else "front window"
+    script = f'''
+    tell application "Terminal"
+        if (count of windows) is 0 then
+            return "exists:false\nbusy:false\ncontents:"
+        end if
+
+        if exists ({target}) then
+            set targetWindow to {target}
+            set tabBusy to false
+            try
+                set tabBusy to busy of selected tab of targetWindow
+            end try
+
+            set tabContents to ""
+            try
+                set tabContents to contents of selected tab of targetWindow
+            on error
+                try
+                    set tabContents to contents of targetWindow
+                end try
+            end try
+
+            return "exists:true\nbusy:" & (tabBusy as string) & "\ncontents:" & tabContents
+        end if
+
+        return "exists:false\nbusy:false\ncontents:"
+    end tell
+    '''
+
+    try:
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=True)
+        raw = result.stdout or ""
+        exists = False
+        busy = False
+        contents = ""
+        for line in raw.splitlines():
+            if line.startswith("exists:"):
+                exists = line.split(":", 1)[1].strip().lower() == "true"
+            elif line.startswith("busy:"):
+                busy = line.split(":", 1)[1].strip().lower() == "true"
+            elif line.startswith("contents:"):
+                contents = line.split(":", 1)[1]
+            else:
+                contents = f"{contents}\n{line}" if contents else line
+        return TerminalSnapshot(window_id=str(window_id or ""), exists=exists, busy=busy, contents=contents.strip())
+    except Exception as e:
+        print(f"⚠️ Error capturing terminal snapshot {window_id}: {e}")
+        return TerminalSnapshot(window_id=str(window_id or ""), exists=False, busy=False, contents="")
+
 
 def send_input_to_terminal(input_text, window_id=None):
     """Uses System Events to type input into a SPECIFIC Terminal window."""

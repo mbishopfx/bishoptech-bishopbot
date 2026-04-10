@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="/Users/matthewbishop/BishopBot"
-PY="$ROOT_DIR/venv/bin/python"
+PY="$ROOT_DIR/.venv/bin/python"
 
 cd "$ROOT_DIR"
 

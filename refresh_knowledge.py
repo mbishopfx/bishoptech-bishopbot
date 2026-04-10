@@ -2,7 +2,7 @@ import os
 import json
 import time
 from datetime import datetime, timezone
-from services import google_service, rag_service
+from services import google_service, rag_service, slack_service
 from utils import auth_utils
 
 SYNC_STATE_FILE = "sync_state.json"
@@ -68,6 +68,7 @@ def refresh():
         if new_docs:
             rag_service.vector_store.add_documents(new_docs)
             print(f"✅ Knowledge Base updated: {len(new_docs)} new items indexed.")
+            _notify_new_docs(new_docs)
         else:
             print("ℹ️ All fetched items already existed in knowledge base.")
         
@@ -78,6 +79,41 @@ def refresh():
         
     except Exception as e:
         print(f"❌ Refresh Error: {e}")
+
+
+def _notify_new_docs(new_docs):
+    drive_docs = [doc for doc in new_docs if doc["metadata"].get("type") == "drive"]
+    meet_events = [
+        doc for doc in new_docs
+        if doc["metadata"].get("type") == "calendar"
+        and doc["metadata"].get("meetLink")
+    ]
+
+    if not drive_docs and not meet_events:
+        return
+
+    lines = []
+    if drive_docs:
+        lines.append(f"📁 *New Drive files:* {len(drive_docs)}")
+        for doc in drive_docs[:10]:
+            name = doc["metadata"].get("name", "Unnamed")
+            lines.append(f"• {name}")
+        if len(drive_docs) > 10:
+            lines.append(f"• …and {len(drive_docs) - 10} more")
+
+    if meet_events:
+        lines.append(f"📅 *New Meet events:* {len(meet_events)}")
+        for doc in meet_events[:10]:
+            summary = doc["metadata"].get("summary", "No Title")
+            link = doc["metadata"].get("meetLink", "")
+            if link:
+                lines.append(f"• {summary} — {link}")
+            else:
+                lines.append(f"• {summary}")
+        if len(meet_events) > 10:
+            lines.append(f"• …and {len(meet_events) - 10} more")
+
+    slack_service.send_channel_message("\n".join(lines))
 
 def refresh_loop():
     """Loop to be run in a background thread. Runs every 1 hour."""

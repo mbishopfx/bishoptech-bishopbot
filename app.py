@@ -97,6 +97,11 @@ def _start_slack_socket_mode():
         ack()
         _enqueue_cli_input(body, "N")
 
+    @app.action("cli_status")
+    def handle_cli_status(ack, body, say):
+        ack()
+        _enqueue_cli_input(body, "STATUS")
+
     @app.action("cli_stop")
     def handle_cli_stop(ack, body, say):
         ack()

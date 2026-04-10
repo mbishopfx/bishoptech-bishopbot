@@ -3,6 +3,17 @@
 # BishopBot Startup Script
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_PY="$SCRIPT_DIR/.venv/bin/python"
+PYTHON_BIN="python3"
+
+if [[ -x "$VENV_PY" ]]; then
+    PYTHON_BIN="$VENV_PY"
+    echo "🐍 Using project venv: $VENV_PY"
+else
+    echo "⚠️  Project venv not found at .venv; falling back to python3"
+fi
+
 echo "🤖 Starting BishopBot Local Environment..."
 
 # Function to stop background processes on exit
@@ -18,7 +29,7 @@ trap cleanup SIGINT
 
 # 1. Start the Local Worker (The Core)
 echo "⚙️  Starting Local Worker (Task execution + Knowledge Refresh)..."
-python3 local_worker.py &
+"$PYTHON_BIN" local_worker.py &
 WORKER_PID=$!
 
 # Give it a few seconds to initialize and print warnings
@@ -37,13 +48,13 @@ read -t 1 -n 10000 discard
 read -p "❓ Start Listener (app.py: Slack Socket Mode + HTTP gateway/WhatsApp) locally? [y/N] " run_app
 if [[ "$run_app" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     echo "📡 Starting Local Listener..."
-    python3 app.py &
+    "$PYTHON_BIN" app.py &
 fi
 
 read -p "❓ Start GitHub Monitor locally? [y/N] " run_monitor
 if [[ "$run_monitor" =~ ^([yY][eE][sS]|[yY])$ ]]; then
     echo "🕵️  Starting GitHub Monitor..."
-    python3 github_monitor_worker.py &
+    "$PYTHON_BIN" github_monitor_worker.py &
 fi
 
 echo ""
