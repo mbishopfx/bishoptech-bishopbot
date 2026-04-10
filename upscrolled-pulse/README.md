@@ -30,10 +30,10 @@ Then start the dashboard:
 cd upscrolled-pulse
 cp .env.example .env.local
 npm install
-npm run dev
+npm run dev:bishop
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3113](http://localhost:3113).
 
 ## Environment
 

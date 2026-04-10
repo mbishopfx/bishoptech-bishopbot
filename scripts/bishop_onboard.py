@@ -41,6 +41,7 @@ def detect_paths() -> dict[str, str]:
         "REDIS_URL": "redis://localhost:6379/0",
         "TASK_QUEUE_NAME": "bishopbot_tasks",
         "BISHOP_BRAND_NAME": "BISHOP",
+        "BISHOP_DASHBOARD_PORT": "3113",
         "GEMINI_CLI_ARGS": "--yolo",
         "GEMINI_CLI_ARGS_YOLO": "--yolo",
         "CODEX_CLI_ARGS": "exec --full-auto",
@@ -123,7 +124,8 @@ def doctor() -> int:
         print("- Fill Slack tokens in .env")
     print(f"- Import or update Slack manifest from {MANIFEST_PATH}")
     print("- Install dependencies: `python3 -m venv .venv && ./.venv/bin/pip install -r requirements_local.txt`")
-    print("- Start locally with `./start.sh` or `./.venv/bin/python app.py` plus `./.venv/bin/python local_worker.py`")
+    print("- Start the full local stack with `./start.sh`")
+    print("- Dashboard will be served at http://localhost:3113 unless BISHOP_DASHBOARD_PORT overrides it")
 
     critical_ok = all(ok for _, ok, _ in rows[:4])
     return 0 if critical_ok else 1
@@ -144,7 +146,8 @@ def print_next_steps() -> int:
                 "3. Run `./scripts/bishop_onboard.py init-env`.",
                 "4. Fill Slack tokens and any optional API keys in `.env`.",
                 "5. Import `manifest.json` into your Slack app and reinstall it.",
-                "6. Start the listener and worker with `./start.sh`.",
+                "6. Start the full local stack with `./start.sh`.",
+                "7. Open the dashboard at http://localhost:3113.",
             ]
         )
     )

@@ -116,13 +116,18 @@ After importing or updating the manifest, reinstall the Slack app in your worksp
 
 ### 7. Start BISHOP locally
 
-The simplest path is still:
+The master command is now:
 
 ```bash
 ./start.sh
 ```
 
-That starts the local worker first, then optionally starts the Slack listener and GitHub monitor.
+That starts the local worker, the Slack listener / local HTTP API, and the dashboard UI in one shot.
+
+Default local endpoints:
+
+- Dashboard: `http://localhost:3113`
+- Python API: `http://127.0.0.1:8080`
 
 You can also run the parts manually:
 
@@ -131,7 +136,7 @@ You can also run the parts manually:
 ./.venv/bin/python app.py
 ```
 
-### 8. Start the dashboard
+### 8. Dashboard details
 
 The dashboard lives under `upscrolled-pulse/`. It is a Next.js control surface that proxies into the local Python API and uses the same Redis/RQ worker path as Slack.
 
@@ -139,10 +144,10 @@ The dashboard lives under `upscrolled-pulse/`. It is a Next.js control surface t
 cd upscrolled-pulse
 cp .env.example .env.local
 npm install
-npm run dev
+npm run dev:bishop
 ```
 
-By default the UI expects the Python API at `http://127.0.0.1:8080`.
+By default the UI expects the Python API at `http://127.0.0.1:8080` and serves on `http://localhost:3113`.
 
 If the UI and API are not both local, set a shared token in both places:
 
@@ -154,7 +159,7 @@ DASHBOARD_API_TOKEN=choose-a-secret
 BISHOP_DASHBOARD_API_TOKEN=choose-a-secret
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to use the dashboard.
+Open [http://localhost:3113](http://localhost:3113) to use the dashboard.
 
 ## launchd option
 
