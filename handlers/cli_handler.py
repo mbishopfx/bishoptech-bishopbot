@@ -43,6 +43,7 @@ def handle_cli_command(input_text, response_url=None, user_id=None, mode="gemini
             mode=resolved_runtime,
             context_block=prompt_context,
             original_request=effective_input,
+            ops_phase="execute",
         )
 
         # 3. Start Terminal Session via Manager

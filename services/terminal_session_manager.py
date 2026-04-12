@@ -4,6 +4,7 @@ import threading
 import shlex
 from datetime import datetime, timezone
 from services import agent_context_service, shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service, slack_service
+from services.ops_phase import make_ops_phase_state
 from services.runtime_adapters import get_runtime_adapter
 from config import CONFIG
 
@@ -61,11 +62,18 @@ class TerminalSessionManager:
             return None
 
         effective_launch_mode = resolved_launch_mode.key if resolved_launch_mode else None
+        phase_state = make_ops_phase_state("execute", reason=f"launching {adapter.label.lower()} session")
         state_path = session_state_service.initialize_session_state(
             session_id,
             runtime=adapter.key,
             launch_mode=effective_launch_mode,
             prompt_transport=adapter.prompt_transport(launch_mode=effective_launch_mode),
+            ops_phase=phase_state.phase,
+            ops_phase_reason=phase_state.reason,
+            ops_phase_confidence=f"{phase_state.confidence:.2f}",
+            ops_phase_risk=phase_state.risk,
+            ops_phase_tool_policy=phase_state.tool_policy,
+            ops_phase_next_expected=phase_state.next_expected,
         )
         output_path = session_output_service.initialize_session_output(session_id)
 
@@ -156,6 +164,10 @@ class TerminalSessionManager:
             "prompt_enter_delay_seconds": prompt_enter_delay,
             "ready_wait_seconds": CONFIG.get("TERMINAL_READY_WAIT_SECONDS", "25"),
             "runtime_metadata": adapter_meta,
+            "ops_phase": phase_state.phase,
+            "ops_phase_reason": phase_state.reason,
+            "ops_phase_risk": phase_state.risk,
+            "ops_phase_next_expected": phase_state.next_expected,
             "state_path": state_path,
             "output_path": output_path,
             "tty_path": tty_path,
@@ -181,6 +193,8 @@ class TerminalSessionManager:
             original_request=original_request,
             refined_request=refined_request,
             plan_text=plan_text,
+            ops_phase=phase_state.phase,
+            ops_phase_state=phase_state,
         )
 
         # Keep a per-user "last session" pointer (used by WhatsApp controls like !enter).
@@ -200,8 +214,9 @@ class TerminalSessionManager:
             plan_header = f"🧭 {adapter.label} plan for session `{session_id}`"
             runtime_context = (
                 f"Runtime: {adapter.label}\n"
-                f"Launch mode: {adapter_meta.get('launch_mode_label', adapter.prompt_style_label(launch_mode))}\n"
-                f"Launch: {adapter.launch_command(launch_mode=launch_mode)}\n"
+                f"Launch mode: {adapter_meta.get('launch_mode_label', adapter.prompt_style_label(effective_launch_mode))}\n"
+                f"Launch: {adapter.launch_command(launch_mode=effective_launch_mode)}\n"
+                f"Ops phase: {phase_state.phase}\n"
                 f"Boot delay: {boot_delay}s\n\n"
                 f"{plan_text}"
             )
@@ -225,6 +240,7 @@ class TerminalSessionManager:
             adapter = get_runtime_adapter(session.get("runtime"))
             previous_status = session.get("status")
             previous_final_summary = session.get("final_summary")
+            previous_ops_phase = session.get("ops_phase")
             try:
                 close_recovery_grace = max(0, int(str(CONFIG.get("TERMINAL_CLOSE_RECOVERY_GRACE_SECONDS", "20"))))
             except Exception:
@@ -289,16 +305,28 @@ class TerminalSessionManager:
             if is_complete:
                 session["status"] = "completed"
                 session["completed_at"] = time.time()
+                session["ops_phase"] = "handoff"
+                session["ops_phase_reason"] = "runtime completed successfully"
             elif has_error:
                 session["status"] = "attention_needed"
+                session["ops_phase"] = "recover"
+                session["ops_phase_reason"] = "runtime reported an error"
             elif needs_input:
                 session["status"] = "waiting_for_input"
+                session["ops_phase"] = "triage"
+                session["ops_phase_reason"] = "waiting on user input"
             elif snapshot.exists and snapshot.busy:
                 session["status"] = "running"
+                session["ops_phase"] = "execute"
+                session["ops_phase_reason"] = "runtime is actively working"
             elif snapshot.exists and not snapshot.busy and session.get("prompt_transport") == "argv":
                 session["status"] = "settled"
+                session["ops_phase"] = "verify"
+                session["ops_phase_reason"] = "argv runtime has settled; verify output"
             else:
                 session["status"] = "running"
+                session["ops_phase"] = "execute"
+                session["ops_phase_reason"] = "runtime is still active"
 
             if session.get("status") != previous_status or session.get("final_summary") != previous_final_summary:
                 agent_context_service.update_session_status(
@@ -306,6 +334,23 @@ class TerminalSessionManager:
                     status=session.get("status", "running"),
                     response_target=session.get("response_url"),
                     final_summary=session.get("final_summary"),
+                )
+            if previous_ops_phase != session.get("ops_phase") or previous_status != session.get("status"):
+                agent_context_service.update_session_ops_phase(
+                    session_id,
+                    make_ops_phase_state(
+                        session.get("ops_phase", "execute"),
+                        reason=session.get("ops_phase_reason", "runtime state changed"),
+                        risk="medium",
+                        confidence=0.8 if session.get("status") in {"completed", "settled"} else 0.7,
+                        next_expected={
+                            "completed": "handoff",
+                            "attention_needed": "recover",
+                            "waiting_for_input": "triage",
+                            "settled": "verify",
+                        }.get(session.get("status", "running"), "verify"),
+                        tags=["runtime", session.get("status", "running")],
+                    ),
                 )
 
             if current_output and current_output != session["last_output"]:

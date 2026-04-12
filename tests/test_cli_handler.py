@@ -40,6 +40,7 @@ class CliHandlerTests(unittest.TestCase):
             mode="codex",
             context_block="context block",
             original_request="inspect the listener",
+            ops_phase="execute",
         )
         mock_start_session.assert_called_once()
         _, kwargs = mock_start_session.call_args
@@ -84,6 +85,7 @@ class CliHandlerTests(unittest.TestCase):
             mode="gemini",
             context_block="context block",
             original_request="check the current weather in Carthage, MO",
+            ops_phase="execute",
         )
         _, kwargs = mock_start_session.call_args
         self.assertEqual(kwargs["agent_mode"], "gemini")

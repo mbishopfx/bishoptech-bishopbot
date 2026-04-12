@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from config import CONFIG
+from handlers import cli_handler
 from services import agent_context_service, mcp_registry_service, session_log_service, session_output_service, session_state_service
 
 
@@ -36,6 +38,46 @@ def _tail_text(text: str, max_lines: int = 24, max_chars: int = 5000) -> str:
     return tailed[-max_chars:]
 
 
+def _tail_file_text(path: Path, max_lines: int = 24, max_chars: int = 5000) -> str:
+    if not path.exists():
+        return ""
+
+    max_lines = max(1, int(max_lines))
+    max_chars = max(1, int(max_chars))
+    chunks: list[bytes] = []
+    total_bytes = 0
+    newline_count = 0
+
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        position = handle.tell()
+        if position <= 0:
+            return ""
+
+        block_size = 8192
+        while position > 0 and (newline_count <= max_lines or total_bytes < max_chars):
+            read_size = min(block_size, position)
+            position -= read_size
+            handle.seek(position)
+            data = handle.read(read_size)
+            if not data:
+                break
+
+            chunks.append(data)
+            total_bytes += len(data)
+            newline_count += data.count(b"\n")
+
+            if total_bytes >= max_chars * 2 and newline_count >= max_lines:
+                break
+
+    text = b"".join(reversed(chunks)).decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+    tail = "\n".join(lines)
+    return tail[-max_chars:].rstrip()
+
+
 def _paths_payload() -> dict[str, str]:
     project_root = str(Path(CONFIG.get("PROJECT_ROOT_DIR") or ".").resolve())
     return {
@@ -62,6 +104,10 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "launch_mode": row["launch_mode"],
         "user_id": row["user_id"],
         "status": row["status"],
+        "ops_phase": row["ops_phase"],
+        "ops_phase_reason": row["ops_phase_reason"],
+        "ops_phase_risk": row["ops_phase_risk"],
+        "ops_phase_next_expected": row["ops_phase_next_expected"],
         "original_request": row["original_request"],
         "refined_request": row["refined_request"],
         "plan_text": row["plan_text"],
@@ -78,8 +124,9 @@ def list_sessions(limit: int = 20) -> list[dict[str, Any]]:
     with _connect_memory() as conn:
         rows = conn.execute(
             """
-            SELECT session_id, runtime, launch_mode, user_id, status, original_request,
-                   refined_request, plan_text, final_summary, started_at, updated_at,
+            SELECT session_id, runtime, launch_mode, user_id, status, ops_phase,
+                   ops_phase_reason, ops_phase_risk, ops_phase_next_expected,
+                   original_request, refined_request, plan_text, final_summary, started_at, updated_at,
                    completed_at, response_target
             FROM sessions
             ORDER BY started_at DESC
@@ -95,8 +142,9 @@ def get_session(session_id: str) -> dict[str, Any] | None:
     with _connect_memory() as conn:
         row = conn.execute(
             """
-            SELECT session_id, runtime, launch_mode, user_id, status, original_request,
-                   refined_request, plan_text, final_summary, started_at, updated_at,
+            SELECT session_id, runtime, launch_mode, user_id, status, ops_phase,
+                   ops_phase_reason, ops_phase_risk, ops_phase_next_expected,
+                   original_request, refined_request, plan_text, final_summary, started_at, updated_at,
                    completed_at, response_target
             FROM sessions
             WHERE session_id = ?
@@ -108,10 +156,10 @@ def get_session(session_id: str) -> dict[str, Any] | None:
 
     session = _session_row_to_dict(row)
     session["state"] = session_state_service.parse_session_state(session_id)
-    session["output_tail"] = _tail_text(session_output_service.read_session_output(session_id), max_lines=40)
+    session["output_tail"] = _tail_file_text(session_output_service.session_output_path(session_id), max_lines=40)
     log_path = session_log_service.session_log_path(session_id)
     session["log_path"] = str(log_path)
-    session["log_excerpt"] = _tail_text(log_path.read_text(encoding="utf-8") if log_path.exists() else "", max_lines=48)
+    session["log_excerpt"] = _tail_file_text(log_path, max_lines=48)
     return session
 
 
@@ -167,6 +215,9 @@ def _is_session_accepting_input(session_id: str) -> bool:
     state_status = (state.get("status") or "").strip().lower()
     session_status = str(session.get("status") or "").strip().lower()
     effective_status = state_status or session_status
+    prompt_transport = (state.get("prompt_transport") or "").strip().lower()
+    if prompt_transport == "argv":
+        return False
     return effective_status in ACTIVE_STATUSES
 
 
@@ -201,6 +252,26 @@ def enqueue_dashboard_command(command: str, text: str, runtime_mode: str | None 
     }
 
 
+def run_glass_command(command: str, text: str) -> dict[str, Any]:
+    normalized_command = command.strip()
+    if normalized_command not in {"/cli", "/codex"}:
+        raise ValueError("Only /cli and /codex are supported from the glass bridge")
+
+    payload = text or ""
+    if not payload.strip():
+        raise ValueError("Command text is required")
+
+    mode = "codex" if normalized_command == "/codex" else "gemini"
+    result = cli_handler.handle_cli_command(
+        payload,
+        response_url="console:glass",
+        user_id="glass",
+        mode=mode,
+    )
+    result["command"] = normalized_command
+    return result
+
+
 def enqueue_session_input(session_id: str, text: str) -> dict[str, Any]:
     queue = _redis_queue()
     if queue is None:
@@ -209,8 +280,8 @@ def enqueue_session_input(session_id: str, text: str) -> dict[str, Any]:
     if not _is_session_accepting_input(session_id):
         raise ValueError("Session is not active or is no longer accepting input")
 
-    payload = (text or "").strip()
-    if not payload:
+    payload = text or ""
+    if not payload.strip():
         raise ValueError("Input text is required")
 
     job = queue.enqueue(

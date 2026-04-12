@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useEffectEvent, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
 type Overview = {
   brand: string;
@@ -32,6 +32,8 @@ type SessionSummary = {
   launch_mode: string | null;
   user_id: string | null;
   status: string;
+  ops_phase: string | null;
+  ops_phase_reason: string | null;
   original_request: string | null;
   refined_request: string | null;
   final_summary: string | null;
@@ -124,6 +126,23 @@ function trimError(text: string) {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
+function parseTypedLaunchCommand(command: string, text: string) {
+  const trimmedText = text.trim();
+  const typedCommandMatch = trimmedText.match(/^\/(cli|codex)\b\s*/i);
+
+  if (!typedCommandMatch) {
+    return {
+      command,
+      text: trimmedText,
+    };
+  }
+
+  return {
+    command: `/${typedCommandMatch[1].toLowerCase()}`,
+    text: trimmedText.slice(typedCommandMatch[0].length).trim(),
+  };
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 4500);
@@ -183,6 +202,10 @@ function AsciiBackdrop() {
 export function DashboardShell() {
   const bootstrappedRef = useRef(false);
   const pollLockRef = useRef(false);
+  const viewRef = useRef<ViewKey>("launch");
+  const selectedSessionIdRef = useRef("");
+  const sessionsRef = useRef<SessionSummary[]>([]);
+  const overviewRef = useRef<Overview | null>(null);
   const [view, setView] = useState<ViewKey>("launch");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -199,7 +222,23 @@ export function DashboardShell() {
   const [connectionIssue, setConnectionIssue] = useState("");
   const [lastSyncedAt, setLastSyncedAt] = useState<string>("");
 
-  const loadReferenceData = useEffectEvent(async () => {
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useEffect(() => {
+    overviewRef.current = overview;
+  }, [overview]);
+
+  const loadReferenceData = useCallback(async () => {
     const [resourcesResult, notesResult] = await Promise.allSettled([
       fetchJson<{ resources: ResourceRow[] }>("/api/dashboard/resources"),
       fetchJson<{ notes: NoteRow[] }>("/api/dashboard/notes"),
@@ -211,9 +250,9 @@ export function DashboardShell() {
     if (notesResult.status === "fulfilled") {
       setNotes(notesResult.value.notes);
     }
-  });
+  }, []);
 
-  const loadLiveData = useEffectEvent(async (silent = false) => {
+  const loadLiveData = useCallback(async (silent = false) => {
     const [overviewResult, sessionsResult] = await Promise.allSettled([
       fetchJson<Overview>("/api/dashboard/overview"),
       fetchJson<{ sessions: SessionSummary[] }>("/api/dashboard/sessions"),
@@ -226,16 +265,17 @@ export function DashboardShell() {
       setOverview(overviewResult.value);
     }
     if (sessionsOk) {
-      setSessions(sessionsResult.value.sessions);
-      if (!selectedSessionId && sessionsResult.value.sessions[0]?.session_id) {
-        setSelectedSessionId(sessionsResult.value.sessions[0].session_id);
+      const nextSessions = sessionsResult.value.sessions;
+      setSessions(nextSessions);
+      if (!selectedSessionIdRef.current && nextSessions[0]?.session_id) {
+        setSelectedSessionId(nextSessions[0].session_id);
       }
     }
 
     if (overviewOk || sessionsOk) {
       setConnectionIssue("");
       setLastSyncedAt(new Date().toLocaleTimeString());
-      return sessionsOk ? sessionsResult.value.sessions : sessions;
+      return sessionsOk ? sessionsResult.value.sessions : sessionsRef.current;
     }
 
     const message =
@@ -247,13 +287,13 @@ export function DashboardShell() {
           ? sessionsResult.reason.message
           : "Dashboard backend is unavailable.";
 
-    if (!silent || (!overview && sessions.length === 0)) {
+    if (!silent || (!overviewRef.current && sessionsRef.current.length === 0)) {
       setConnectionIssue(trimError(message));
     }
-    return sessions;
-  });
+    return sessionsRef.current;
+  }, []);
 
-  const loadSelectedSession = useEffectEvent(async (sessionId: string, silent = false) => {
+  const loadSelectedSession = useCallback(async (sessionId: string, silent = false) => {
     if (!sessionId) {
       setSelectedSession(null);
       return;
@@ -270,7 +310,7 @@ export function DashboardShell() {
         setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to load session.");
       }
     }
-  });
+  }, []);
 
   useEffect(() => {
     if (bootstrappedRef.current) {
@@ -290,33 +330,61 @@ export function DashboardShell() {
   }, [loadSelectedSession, selectedSessionId]);
 
   useEffect(() => {
+    let canceled = false;
     let tick = 0;
-    const id = window.setInterval(() => {
-      if (document.visibilityState === "hidden" || pollLockRef.current) {
+    let timeoutId: number | null = null;
+
+    const scheduleNextPoll = () => {
+      if (canceled) {
         return;
       }
+
+      const delay = viewRef.current === "sessions" ? 15000 : 30000;
+      timeoutId = window.setTimeout(runPoll, delay);
+    };
+
+    const runPoll = () => {
+      if (canceled) {
+        return;
+      }
+
+      if (document.visibilityState === "hidden" || pollLockRef.current) {
+        scheduleNextPoll();
+        return;
+      }
+
       pollLockRef.current = true;
       tick += 1;
+      const activeView = viewRef.current;
+      const activeSessionId = selectedSessionIdRef.current;
+
       startTransition(() => {
         void Promise.all([
           loadLiveData(true),
-          view === "sessions" && selectedSessionId ? loadSelectedSession(selectedSessionId, true) : Promise.resolve(),
-          (view === "memory" || view === "paths") && tick % 6 === 0 ? loadReferenceData() : Promise.resolve(),
+          activeView === "sessions" && activeSessionId ? loadSelectedSession(activeSessionId, true) : Promise.resolve(),
+          (activeView === "memory" || activeView === "paths") && tick % 6 === 0 ? loadReferenceData() : Promise.resolve(),
         ]).finally(() => {
           pollLockRef.current = false;
+          scheduleNextPoll();
         });
       });
-    }, view === "sessions" ? 9000 : 18000);
+    };
+
+    timeoutId = window.setTimeout(runPoll, 3000);
     return () => {
-      window.clearInterval(id);
+      canceled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
       pollLockRef.current = false;
     };
-  }, [loadLiveData, loadReferenceData, loadSelectedSession, selectedSessionId, view]);
+  }, [loadLiveData, loadReferenceData, loadSelectedSession]);
 
   const selectedSessionSummary = sessions.find((session) => session.session_id === selectedSessionId) ?? null;
 
   async function handleTriggerCommand() {
-    if (!composerText.trim()) {
+    const parsed = parseTypedLaunchCommand(composerCommand, composerText);
+    if (!parsed.text) {
       setBanner("Enter a command before launching.");
       return;
     }
@@ -326,12 +394,12 @@ export function DashboardShell() {
       const payload = await fetchJson<{ job_id: string }>("/api/dashboard/commands", {
         method: "POST",
         body: JSON.stringify({
-          command: composerCommand,
+          command: parsed.command,
           runtime_mode: composerMode,
-          text: composerText.trim(),
+          text: parsed.text,
         }),
       });
-      setBanner(`Queued ${composerCommand} as ${payload.job_id}`);
+      setBanner(`Queued ${parsed.command} as ${payload.job_id}`);
       setConnectionIssue("");
       setComposerText("");
       setView("sessions");
@@ -353,6 +421,15 @@ export function DashboardShell() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function submitOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>, submit: () => void) {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    void submit();
   }
 
   async function handleSendSessionInput() {
@@ -474,7 +551,13 @@ export function DashboardShell() {
                       <div className="operator-copy">Same queue. Same worker. Same runtime flow as Slack.</div>
                     </div>
 
-                    <div className="rounded-[24px] border border-white/8 bg-black/18 p-4">
+                    <form
+                      className="rounded-[24px] border border-white/8 bg-black/18 p-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleTriggerCommand();
+                      }}
+                    >
                       <div className="grid gap-3 md:grid-cols-2">
                         <label className="grid gap-2 text-sm text-zinc-400">
                           Command
@@ -508,6 +591,7 @@ export function DashboardShell() {
                         <textarea
                           value={composerText}
                           onChange={(event) => setComposerText(event.target.value)}
+                          onKeyDown={(event) => submitOnEnter(event, handleTriggerCommand)}
                           placeholder="Use openbrowser to inspect the issue, then summarize the blockers."
                           className="min-h-48 rounded-[22px] border border-white/10 bg-zinc-950/80 px-4 py-4 font-mono text-sm leading-7 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
                         />
@@ -518,15 +602,14 @@ export function DashboardShell() {
                           prompt now routes through vibes-full.md
                         </div>
                         <button
-                          type="button"
-                          onClick={handleTriggerCommand}
+                          type="submit"
                           disabled={busy}
                           className="rounded-2xl border border-white/12 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {busy ? "Queueing" : "Trigger"}
                         </button>
                       </div>
-                    </div>
+                    </form>
                   </div>
 
                   <div className="space-y-4">
@@ -635,25 +718,31 @@ export function DashboardShell() {
                           </div>
                         </div>
 
-                        <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                        <form
+                          className="rounded-[22px] border border-white/7 bg-black/16 p-4"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void handleSendSessionInput();
+                          }}
+                        >
                           <div className="operator-label">follow-up</div>
                           <div className="mt-3 flex flex-col gap-3 lg:flex-row">
                             <textarea
                               value={sessionInput}
                               onChange={(event) => setSessionInput(event.target.value)}
+                              onKeyDown={(event) => submitOnEnter(event, handleSendSessionInput)}
                               placeholder="Continue with the OpenClaw memory path and summarize what changed."
                               className="min-h-24 flex-1 rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
                             />
                             <button
-                              type="button"
-                              onClick={handleSendSessionInput}
+                              type="submit"
                               disabled={busy || !selectedSessionId}
                               className="rounded-2xl border border-white/12 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               Send
                             </button>
                           </div>
-                        </div>
+                        </form>
                       </>
                     ) : (
                       <div className="rounded-[22px] border border-dashed border-white/10 px-6 py-12 text-center text-sm text-zinc-500">
@@ -740,6 +829,14 @@ export function DashboardShell() {
                       </span>
                     </div>
                     <div>{selectedSessionSummary.runtime.toUpperCase()} / {selectedSessionSummary.launch_mode || "default"}</div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                      phase: {selectedSessionSummary.ops_phase || "execute"}
+                    </div>
+                    {selectedSessionSummary.ops_phase_reason ? (
+                      <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        {selectedSessionSummary.ops_phase_reason}
+                      </div>
+                    ) : null}
                     <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">{formatTimestamp(selectedSessionSummary.updated_at)}</div>
                   </div>
                 ) : (

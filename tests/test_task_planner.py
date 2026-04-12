@@ -14,6 +14,8 @@ class TaskPlannerTests(unittest.TestCase):
         )
 
         self.assertIn("Follow the project guidance in `GEMINI.md`", prompt)
+        self.assertIn("## Ops phase", prompt)
+        self.assertIn("- phase: execute", prompt)
         self.assertTrue(prompt.endswith('Keep updates brief. When the task is fully complete, print "SESSION COMPLETE" on its own line followed by a short final summary.'))
         self.assertIn("testing", prompt)
         self.assertIn("Suggested execution plan:", prompt)

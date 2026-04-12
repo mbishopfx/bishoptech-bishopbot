@@ -91,6 +91,33 @@ class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
         self._send(200, "OK")
 
     def do_POST(self):
+        if self.path.startswith("/api/glass/commands"):
+            if not self._dashboard_allowed():
+                self._send_json(403, {"error": "Glass API is restricted to localhost or a valid token."})
+                return
+
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_body = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw_body.decode("utf-8") or "{}")
+            except Exception:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+
+            try:
+                result = dashboard_service.run_glass_command(
+                    str(payload.get("command") or "/cli"),
+                    str(payload.get("text") or ""),
+                )
+                self._send_json(202, result)
+                return
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+                return
+
         if self.path.startswith("/api/dashboard"):
             if not self._dashboard_allowed():
                 self._send_json(403, {"error": "Dashboard API is restricted to localhost or a valid token."})

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from services import openai_service
+from services.ops_phase import render_ops_phase_block
 from services.runtime_adapters import get_runtime_adapter
 
 
@@ -72,6 +73,7 @@ class TaskPlanner:
         *,
         context_block: str | None = None,
         original_request: str | None = None,
+        ops_phase: str = "execute",
     ):
         adapter = get_runtime_adapter(mode)
         if mode == "gemini":
@@ -79,6 +81,8 @@ class TaskPlanner:
             task_lines = "\n".join(f"{idx + 1}. {task}" for idx, task in enumerate(tasks or []))
             sections = [
                 "Follow the project guidance in `GEMINI.md` in the current workspace for repo behavior and operating rules.",
+                "",
+                render_ops_phase_block(ops_phase, reason="runtime prompt composition"),
                 "",
                 request_text,
             ]
@@ -104,6 +108,7 @@ class TaskPlanner:
             context_block=context_block,
             original_request=original_request,
         )
+        base_prompt = f"{render_ops_phase_block(ops_phase, reason='runtime prompt composition')}\n\n{base_prompt}"
         execution_suffix = (
             "\n\nWhen you finish each step, print \"TASK {step_number} COMPLETE\" and keep going. "
             "Only if you learn a durable, reusable fact, update `agent-context/vibes.md` and record it in the SQLite memory using `./scripts/agent_memory.py note ...` or direct sqlite. "

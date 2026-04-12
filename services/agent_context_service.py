@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Iterable
 
 from config import CONFIG
 from services import mcp_registry_service
+from services.ops_phase import DEFAULT_OPS_PHASE, OpsPhaseState, make_ops_phase_state, render_ops_phase_block, render_ops_protocol_block
 
 
 MAX_VIBES_CHARS = 4000
@@ -80,6 +82,19 @@ def _ensure_schema(conn: sqlite3.Connection):
             user_id TEXT,
             response_target TEXT,
             status TEXT NOT NULL,
+            ops_phase TEXT,
+            ops_phase_version INTEGER,
+            ops_phase_reason TEXT,
+            ops_phase_confidence REAL,
+            ops_phase_risk TEXT,
+            ops_phase_tool_policy TEXT,
+            ops_phase_needs_verification INTEGER,
+            ops_phase_next_expected TEXT,
+            ops_phase_turn_id INTEGER,
+            ops_phase_tags TEXT,
+            ops_phase_handoff_summary TEXT,
+            ops_phase_entered_at TEXT,
+            ops_phase_updated_at TEXT,
             original_request TEXT,
             refined_request TEXT,
             plan_text TEXT,
@@ -101,6 +116,25 @@ def _ensure_schema(conn: sqlite3.Connection):
         );
         """
     )
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+    session_phase_columns = {
+        "ops_phase": "TEXT",
+        "ops_phase_version": "INTEGER",
+        "ops_phase_reason": "TEXT",
+        "ops_phase_confidence": "REAL",
+        "ops_phase_risk": "TEXT",
+        "ops_phase_tool_policy": "TEXT",
+        "ops_phase_needs_verification": "INTEGER",
+        "ops_phase_next_expected": "TEXT",
+        "ops_phase_turn_id": "INTEGER",
+        "ops_phase_tags": "TEXT",
+        "ops_phase_handoff_summary": "TEXT",
+        "ops_phase_entered_at": "TEXT",
+        "ops_phase_updated_at": "TEXT",
+    }
+    for column, definition in session_phase_columns.items():
+        if column not in existing_columns:
+            conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} {definition}")
 
 
 def _seeded_resources() -> list[tuple[str, str, str, str, str, str]]:
@@ -310,6 +344,8 @@ def build_prompt_context() -> str:
         f"- Project Gemini settings: `{mcp_registry_service.gemini_settings_path()}`\n"
         f"- Project GEMINI.md: `{mcp_registry_service.project_gemini_md_path()}`\n"
         f"- OpenClaw soul reference: `{soul_path}`\n\n"
+        f"{render_ops_protocol_block()}\n\n"
+        f"{render_ops_phase_block(DEFAULT_OPS_PHASE, reason='default operator execution context')}\n\n"
         "MCP state:\n"
         f"- Catalog repo: `{mcp_summary['catalog_source_dir']}`\n"
         f"- Catalog entries: {mcp_summary['catalog_mcp_count']}\n"
@@ -332,23 +368,43 @@ def record_session_start(
     original_request: str | None,
     refined_request: str | None,
     plan_text: str | None,
+    ops_phase: str | None = None,
+    ops_phase_state: OpsPhaseState | None = None,
 ):
     ensure_context_assets()
     now = _utc_now()
+    phase_state = ops_phase_state or make_ops_phase_state(ops_phase or DEFAULT_OPS_PHASE)
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO sessions (
                 session_id, runtime, launch_mode, user_id, response_target, status,
+                ops_phase, ops_phase_version, ops_phase_reason, ops_phase_confidence,
+                ops_phase_risk, ops_phase_tool_policy, ops_phase_needs_verification,
+                ops_phase_next_expected, ops_phase_turn_id, ops_phase_tags,
+                ops_phase_handoff_summary, ops_phase_entered_at, ops_phase_updated_at,
                 original_request, refined_request, plan_text, started_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 runtime = excluded.runtime,
                 launch_mode = excluded.launch_mode,
                 user_id = excluded.user_id,
                 response_target = excluded.response_target,
                 status = excluded.status,
+                ops_phase = excluded.ops_phase,
+                ops_phase_version = excluded.ops_phase_version,
+                ops_phase_reason = excluded.ops_phase_reason,
+                ops_phase_confidence = excluded.ops_phase_confidence,
+                ops_phase_risk = excluded.ops_phase_risk,
+                ops_phase_tool_policy = excluded.ops_phase_tool_policy,
+                ops_phase_needs_verification = excluded.ops_phase_needs_verification,
+                ops_phase_next_expected = excluded.ops_phase_next_expected,
+                ops_phase_turn_id = excluded.ops_phase_turn_id,
+                ops_phase_tags = excluded.ops_phase_tags,
+                ops_phase_handoff_summary = excluded.ops_phase_handoff_summary,
+                ops_phase_entered_at = excluded.ops_phase_entered_at,
+                ops_phase_updated_at = excluded.ops_phase_updated_at,
                 original_request = excluded.original_request,
                 refined_request = excluded.refined_request,
                 plan_text = excluded.plan_text,
@@ -361,6 +417,19 @@ def record_session_start(
                 user_id,
                 response_target,
                 "running",
+                phase_state.phase,
+                phase_state.version,
+                phase_state.reason,
+                phase_state.confidence,
+                phase_state.risk,
+                phase_state.tool_policy,
+                1 if phase_state.needs_verification else 0,
+                phase_state.next_expected,
+                phase_state.turn_id,
+                json.dumps(phase_state.tags),
+                phase_state.handoff_summary,
+                phase_state.entered_at,
+                phase_state.updated_at,
                 original_request,
                 refined_request,
                 plan_text,
@@ -386,6 +455,49 @@ def update_session_status(session_id: str, *, status: str, response_target: str 
             WHERE session_id = ?
             """,
             (status, response_target, final_summary, now, completed_at, session_id),
+        )
+
+
+def update_session_ops_phase(session_id: str, phase_state: OpsPhaseState):
+    ensure_context_assets()
+    now = _utc_now()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET ops_phase = ?,
+                ops_phase_version = ?,
+                ops_phase_reason = ?,
+                ops_phase_confidence = ?,
+                ops_phase_risk = ?,
+                ops_phase_tool_policy = ?,
+                ops_phase_needs_verification = ?,
+                ops_phase_next_expected = ?,
+                ops_phase_turn_id = ?,
+                ops_phase_tags = ?,
+                ops_phase_handoff_summary = ?,
+                ops_phase_entered_at = ?,
+                ops_phase_updated_at = ?,
+                updated_at = ?
+            WHERE session_id = ?
+            """,
+            (
+                phase_state.phase,
+                phase_state.version,
+                phase_state.reason,
+                phase_state.confidence,
+                phase_state.risk,
+                phase_state.tool_policy,
+                1 if phase_state.needs_verification else 0,
+                phase_state.next_expected,
+                phase_state.turn_id,
+                json.dumps(phase_state.tags),
+                phase_state.handoff_summary,
+                phase_state.entered_at,
+                phase_state.updated_at or now,
+                now,
+                session_id,
+            ),
         )
 
 

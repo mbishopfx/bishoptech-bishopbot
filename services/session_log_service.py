@@ -50,6 +50,7 @@ def initialize_session_log(session_id: str, session: Mapping[str, Any]) -> str:
             f"- Launch mode: {session.get('launch_mode_label', session.get('launch_mode', 'default'))}",
             f"- Launch command: `{session.get('launch_command', '(unknown)')}`",
             f"- Prompt transport: `{session.get('prompt_transport', 'stdin')}`",
+            f"- Ops phase: `{session.get('ops_phase', 'execute')}`",
             f"- Window ID: `{session.get('window_id', '')}`",
             f"- User ID: `{session.get('user_id', '')}`",
             f"- Response target: `{session.get('response_url', '')}`",

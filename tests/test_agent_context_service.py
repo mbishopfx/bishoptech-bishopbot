@@ -43,6 +43,8 @@ class AgentContextServiceTests(unittest.TestCase):
                 self.assertIn("vibes-full.md", context)
                 self.assertIn("agent-context/memory.sqlite", context)
                 self.assertIn("OpenClaw soul reference: `null`", context)
+                self.assertIn("## Bishop ops protocol", context)
+                self.assertIn("## Ops phase", context)
 
     def test_build_prompt_context_points_to_openclaw_soul_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
