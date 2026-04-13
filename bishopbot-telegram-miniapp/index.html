@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" />
+  <title>BishopBot Terminal</title>
+  <script src="https://telegram.org/js/telegram-web-app.js?62" integrity="sha384-1XuC9S4cgk6RH1oCsL2diDRwLiiivu/oZHNfxYUitEFuiKpP5ceNbzu220KKrcK+" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070a11;
+      --panel: rgba(16, 23, 39, 0.86);
+      --panel-2: rgba(20, 29, 48, 0.95);
+      --line: rgba(255,255,255,0.08);
+      --line-strong: rgba(123, 211, 255, 0.22);
+      --text: #e8eefc;
+      --muted: #8d9ab6;
+      --accent: #7bd3ff;
+      --accent-2: #9f7bff;
+      --success: #5de28a;
+      --warning: #ffce5b;
+      --danger: #ff6d85;
+      --shadow: 0 20px 80px rgba(0,0,0,0.38);
+      --radius: 22px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1200px 700px at 15% 0%, rgba(123,211,255,0.12), transparent 44%),
+        radial-gradient(900px 600px at 90% 10%, rgba(159,123,255,0.11), transparent 40%),
+        linear-gradient(180deg, #060910 0%, #090d17 100%);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+    .shell { max-width: 1220px; margin: 0 auto; padding: 18px; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 18px 20px; background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid var(--line); border-radius: 28px; box-shadow: var(--shadow); backdrop-filter: blur(16px);
+      position: sticky; top: 12px; z-index: 20;
+    }
+    .brand { display: flex; flex-direction: column; gap: 4px; }
+    .brand h1 { margin: 0; font-size: 20px; letter-spacing: -0.03em; }
+    .brand p { margin: 0; color: var(--muted); font-size: 13px; }
+    .pillrow { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+    .pill {
+      border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--muted);
+      border-radius: 999px; padding: 8px 12px; font-size: 12px; letter-spacing: 0.02em;
+    }
+    .pill strong { color: var(--text); }
+    .grid {
+      display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr); gap: 18px;
+      margin-top: 18px;
+    }
+    .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+      backdrop-filter: blur(16px); overflow: hidden;
+    }
+    .panel-head {
+      padding: 16px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; align-items: center;
+      background: rgba(255,255,255,0.02);
+    }
+    .panel-head h2 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.18em; color: #c9d7ff; }
+    .panel-head .sub { color: var(--muted); font-size: 12px; }
+    .panel-body { padding: 18px; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .stat {
+      border: 1px solid var(--line); background: rgba(255,255,255,0.03); border-radius: 18px; padding: 14px;
+    }
+    .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; }
+    .stat .value { margin-top: 6px; font-size: 28px; font-weight: 700; letter-spacing: -0.05em; }
+    .stat .hint { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .command-box {
+      margin-top: 14px; border: 1px solid var(--line-strong); background: linear-gradient(180deg, rgba(123,211,255,0.08), rgba(255,255,255,0.02));
+      border-radius: 18px; padding: 14px;
+    }
+    .command-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    input, textarea, button, select {
+      font: inherit; color: var(--text);
+    }
+    textarea, input, select {
+      width: 100%; border: 1px solid var(--line); background: rgba(6, 9, 16, 0.8); border-radius: 16px;
+      padding: 12px 14px; outline: none; box-shadow: none;
+    }
+    textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+    input::placeholder, textarea::placeholder { color: #66728d; }
+    .btn {
+      border: 1px solid var(--line); background: rgba(255,255,255,0.04); border-radius: 14px; padding: 10px 14px;
+      cursor: pointer; transition: transform 120ms ease, border-color 120ms ease, background 120ms ease; white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); border-color: rgba(123,211,255,0.4); background: rgba(123,211,255,0.1); }
+    .btn.primary { background: linear-gradient(135deg, rgba(123,211,255,0.18), rgba(159,123,255,0.18)); border-color: rgba(123,211,255,0.36); }
+    .btn.success { background: rgba(93,226,138,0.16); border-color: rgba(93,226,138,0.3); }
+    .btn.danger { background: rgba(255,109,133,0.14); border-color: rgba(255,109,133,0.26); }
+    .btn.active { box-shadow: inset 0 0 0 1px rgba(123,211,255,0.4); }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .list { display: grid; gap: 10px; margin-top: 14px; }
+    .card {
+      border: 1px solid var(--line); background: rgba(255,255,255,0.03); border-radius: 18px; padding: 14px;
+    }
+    .card.clickable { cursor: pointer; }
+    .card.clickable:hover { border-color: rgba(123,211,255,0.28); background: rgba(123,211,255,0.05); }
+    .card-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .mono { font-family: var(--mono); }
+    .muted { color: var(--muted); }
+    .tiny { font-size: 12px; }
+    .status {
+      padding: 5px 9px; border-radius: 999px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em;
+      border: 1px solid var(--line);
+    }
+    .status.running, .status.open { color: var(--success); border-color: rgba(93,226,138,0.28); background: rgba(93,226,138,0.12); }
+    .status.waiting_for_input, .status.settled { color: var(--warning); border-color: rgba(255,206,91,0.25); background: rgba(255,206,91,0.12); }
+    .status.attention_needed, .status.error { color: var(--danger); border-color: rgba(255,109,133,0.25); background: rgba(255,109,133,0.12); }
+    .status.completed { color: #9af0bd; border-color: rgba(93,226,138,0.3); background: rgba(93,226,138,0.12); }
+    .detail { display: grid; gap: 12px; }
+    .detail pre {
+      white-space: pre-wrap; word-break: break-word; margin: 0; padding: 14px; border-radius: 18px;
+      background: rgba(2,5,10,0.8); border: 1px solid var(--line); color: #dbe5ff; min-height: 180px;
+    }
+    .split { display: grid; gap: 12px; }
+    .grid-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .footer-note { margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .banner {
+      margin-top: 18px; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03); color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    }
+    .errorbox {
+      margin-top: 14px; display: none; border: 1px solid rgba(255,109,133,0.28); color: #ffb8c4;
+      background: rgba(255,109,133,0.08); border-radius: 18px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    }
+    @media (max-width: 1020px) {
+      .grid { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 680px) {
+      .shell { padding: 12px; }
+      .topbar { padding: 14px; border-radius: 22px; }
+      .stats { grid-template-columns: 1fr; }
+      .grid-two { grid-template-columns: 1fr; }
+      .pillrow { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div class="brand">
+        <h1>BishopBot Terminal</h1>
+        <p>Telegram mini app for chat, command launches, and live session control.</p>
+      </div>
+      <div class="pillrow">
+        <div class="pill"><strong id="authState">auth</strong></div>
+        <div class="pill">user <strong id="userLabel">—</strong></div>
+        <div class="pill">phase <strong id="phaseLabel">—</strong></div>
+      </div>
+    </div>
+
+    <div class="banner">
+      <div id="statusText">Loading BishopBot overview…</div>
+      <div class="mono tiny" id="endpointText">API: /api/miniapp</div>
+    </div>
+
+    <div class="errorbox" id="errorBox"></div>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Terminal</h2>
+            <div class="sub">Send a command to BishopBot or continue an active session.</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn active" id="modeCli">/cli</button>
+            <button class="btn" id="modeCodex">/codex</button>
+            <button class="btn" id="refreshAll">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="stats" id="statsGrid">
+            <div class="stat"><div class="label">sessions</div><div class="value" id="statSessions">—</div><div class="hint">Live session count from BishopBot.</div></div>
+            <div class="stat"><div class="label">running</div><div class="value" id="statRunning">—</div><div class="hint">Active sessions currently working.</div></div>
+            <div class="stat"><div class="label">waiting</div><div class="value" id="statWaiting">—</div><div class="hint">Sessions waiting for input or follow-up.</div></div>
+            <div class="stat"><div class="label">phase</div><div class="value" id="statPhase">—</div><div class="hint">Current ops phase of the selected session.</div></div>
+          </div>
+
+          <div class="command-box">
+            <div class="command-row" style="margin-bottom:10px">
+              <input id="commandName" placeholder="Command label (optional)" />
+              <select id="runtimeMode">
+                <option value="">Default runtime</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+              </select>
+            </div>
+            <textarea id="commandText" placeholder="What do you want BishopBot to do? Use natural language or a slash command like /cli or /codex."></textarea>
+            <div class="command-row" style="margin-top:10px; justify-content: space-between;">
+              <div class="toolbar">
+                <button class="btn primary" id="sendCommand">Send command</button>
+                <button class="btn" id="fillExamples">Example prompts</button>
+              </div>
+              <div class="muted tiny" id="lastCommandLabel">No command sent yet.</div>
+            </div>
+          </div>
+
+          <div style="margin-top:18px">
+            <div class="panel-head" style="padding:0 0 12px 0; border:none; background:transparent;">
+              <div>
+                <h2>Sessions</h2>
+                <div class="sub">Recent local sessions and live state.</div>
+              </div>
+            </div>
+            <div class="list" id="sessionList"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Selected session</h2>
+            <div class="sub">Tap a session to inspect or send follow-up input.</div>
+          </div>
+          <button class="btn" id="clearSelection">Clear</button>
+        </div>
+        <div class="panel-body detail">
+          <div class="card">
+            <div class="card-top">
+              <div>
+                <div class="tiny muted">session</div>
+                <div class="mono" id="selectedId">None selected</div>
+              </div>
+              <div class="status open" id="selectedStatus">idle</div>
+            </div>
+            <div class="footer-note" id="selectedMeta">Choose a session from the list to see details and send input.</div>
+          </div>
+
+          <div class="split">
+            <div class="grid-two">
+              <div class="card"><div class="tiny muted">runtime</div><div class="mono" id="selectedRuntime">—</div></div>
+              <div class="card"><div class="tiny muted">updated</div><div class="mono" id="selectedUpdated">—</div></div>
+            </div>
+            <div class="card">
+              <div class="tiny muted">current request</div>
+              <div id="selectedRequest" style="margin-top:8px; line-height:1.55; white-space: pre-wrap;">—</div>
+            </div>
+            <div class="card">
+              <div class="tiny muted">final summary</div>
+              <div id="selectedSummary" style="margin-top:8px; line-height:1.55; white-space: pre-wrap;">—</div>
+            </div>
+            <div class="card">
+              <div class="tiny muted">ops phase</div>
+              <div class="mono" id="selectedPhase">—</div>
+              <div class="footer-note" id="selectedPhaseReason">—</div>
+            </div>
+            <div class="card">
+              <div class="tiny muted">live input</div>
+              <textarea id="sessionInput" placeholder="Send follow-up input to the selected session..."></textarea>
+              <div class="command-row" style="margin-top:10px; justify-content: space-between;">
+                <div class="toolbar">
+                  <button class="btn success" id="sendSessionInput">Send input</button>
+                  <button class="btn" id="sendStop">STOP</button>
+                </div>
+                <div class="muted tiny" id="inputHint">Will target the selected session.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const Telegram = window.Telegram?.WebApp;
+  const state = {
+    mode: '/cli',
+    overview: null,
+    sessions: [],
+    selected: null,
+    authHeader: '',
+  };
+
+  const els = {
+    authState: document.getElementById('authState'),
+    userLabel: document.getElementById('userLabel'),
+    phaseLabel: document.getElementById('phaseLabel'),
+    statusText: document.getElementById('statusText'),
+    endpointText: document.getElementById('endpointText'),
+    errorBox: document.getElementById('errorBox'),
+    statSessions: document.getElementById('statSessions'),
+    statRunning: document.getElementById('statRunning'),
+    statWaiting: document.getElementById('statWaiting'),
+    statPhase: document.getElementById('statPhase'),
+    sessionList: document.getElementById('sessionList'),
+    selectedId: document.getElementById('selectedId'),
+    selectedStatus: document.getElementById('selectedStatus'),
+    selectedMeta: document.getElementById('selectedMeta'),
+    selectedRuntime: document.getElementById('selectedRuntime'),
+    selectedUpdated: document.getElementById('selectedUpdated'),
+    selectedRequest: document.getElementById('selectedRequest'),
+    selectedSummary: document.getElementById('selectedSummary'),
+    selectedPhase: document.getElementById('selectedPhase'),
+    selectedPhaseReason: document.getElementById('selectedPhaseReason'),
+    commandText: document.getElementById('commandText'),
+    commandName: document.getElementById('commandName'),
+    runtimeMode: document.getElementById('runtimeMode'),
+    lastCommandLabel: document.getElementById('lastCommandLabel'),
+    sendCommand: document.getElementById('sendCommand'),
+    sendSessionInput: document.getElementById('sendSessionInput'),
+    sessionInput: document.getElementById('sessionInput'),
+    inputHint: document.getElementById('inputHint'),
+    sendStop: document.getElementById('sendStop'),
+    clearSelection: document.getElementById('clearSelection'),
+    modeCli: document.getElementById('modeCli'),
+    modeCodex: document.getElementById('modeCodex'),
+    refreshAll: document.getElementById('refreshAll'),
+    fillExamples: document.getElementById('fillExamples'),
+  };
+
+  function fmtTime(value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function showError(message) {
+    if (!message) {
+      els.errorBox.style.display = 'none';
+      els.errorBox.textContent = '';
+      return;
+    }
+    els.errorBox.style.display = 'block';
+    els.errorBox.textContent = message;
+  }
+
+  function setStatus(text) { els.statusText.textContent = text; }
+  function setAuthState(text, ok = false) {
+    els.authState.textContent = text;
+    els.authState.style.color = ok ? 'var(--success)' : 'var(--text)';
+  }
+
+  function getBrowserToken() {
+    try { return sessionStorage.getItem('bishopbot_api_token') || localStorage.getItem('bishopbot_api_token') || ''; } catch (_) { return ''; }
+  }
+
+  function saveBrowserToken(token) {
+    try { sessionStorage.setItem('bishopbot_api_token', token); localStorage.setItem('bishopbot_api_token', token); } catch (_) {}
+  }
+
+  function setSelected(session) {
+    state.selected = session || null;
+    renderSelected();
+  }
+
+  function renderSelected() {
+    const s = state.selected;
+    if (!s) {
+      els.selectedId.textContent = 'None selected';
+      els.selectedStatus.textContent = 'idle';
+      els.selectedStatus.className = 'status open';
+      els.selectedMeta.textContent = 'Choose a session from the list to see details and send input.';
+      els.selectedRuntime.textContent = '—';
+      els.selectedUpdated.textContent = '—';
+      els.selectedRequest.textContent = '—';
+      els.selectedSummary.textContent = '—';
+      els.selectedPhase.textContent = '—';
+      els.selectedPhaseReason.textContent = '—';
+      return;
+    }
+    els.selectedId.textContent = s.session_id || '—';
+    els.selectedStatus.textContent = s.status || 'unknown';
+    els.selectedStatus.className = `status ${String(s.status || '').toLowerCase()}`;
+    els.selectedMeta.textContent = s.response_target ? `Response target: ${s.response_target}` : 'No response target recorded.';
+    els.selectedRuntime.textContent = `${String(s.runtime || '—').toUpperCase()} / ${s.launch_mode || 'default'}`;
+    els.selectedUpdated.textContent = fmtTime(s.updated_at);
+    els.selectedRequest.textContent = s.original_request || s.refined_request || '—';
+    els.selectedSummary.textContent = s.final_summary || '—';
+    els.selectedPhase.textContent = s.ops_phase || 'execute';
+    els.selectedPhaseReason.textContent = s.ops_phase_reason || 'No phase reason recorded.';
+    els.phaseLabel.textContent = s.ops_phase || '—';
+  }
+
+  function renderOverview() {
+    const overview = state.overview || {};
+    const sessions = overview.session_count ?? state.sessions.length;
+    const running = overview.running_count ?? state.sessions.filter((s) => ['running', 'waiting_for_input', 'settled'].includes(String(s.status || '').toLowerCase())).length;
+    const waiting = overview.waiting_count ?? state.sessions.filter((s) => String(s.status || '').toLowerCase() === 'waiting_for_input').length;
+    const phase = state.selected?.ops_phase || state.sessions[0]?.ops_phase || '—';
+    els.statSessions.textContent = String(sessions);
+    els.statRunning.textContent = String(running);
+    els.statWaiting.textContent = String(waiting);
+    els.statPhase.textContent = String(phase);
+    els.statusText.textContent = overview.title ? `${overview.title} · ${overview.subtitle || 'live'}` : 'BishopBot overview loaded.';
+  }
+
+  function renderSessions() {
+    if (!state.sessions.length) {
+      els.sessionList.innerHTML = '<div class="card"><div class="muted">No sessions yet.</div></div>';
+      return;
+    }
+    els.sessionList.innerHTML = state.sessions.map((s) => {
+      const selected = state.selected && state.selected.session_id === s.session_id;
+      const title = escapeHtml((s.refined_request || s.original_request || 'Untitled session').slice(0, 120));
+      const detail = escapeHtml(`${String(s.runtime || '').toUpperCase()} · ${s.launch_mode || 'default'} · ${fmtTime(s.updated_at)}`);
+      return `
+        <div class="card clickable ${selected ? 'selected' : ''}" data-session="${escapeHtml(s.session_id)}">
+          <div class="card-top">
+            <div>
+              <div class="mono">${escapeHtml(s.session_id)}</div>
+              <div class="tiny muted" style="margin-top:4px">${title}</div>
+            </div>
+            <div class="status ${escapeHtml(String(s.status || '').toLowerCase())}">${escapeHtml(String(s.status || 'unknown').replaceAll('_', ' '))}</div>
+          </div>
+          <div class="tiny muted" style="margin-top:10px">${detail}</div>
+          <div class="tiny muted" style="margin-top:8px">phase: <span class="mono">${escapeHtml(s.ops_phase || 'execute')}</span>${s.ops_phase_reason ? ` · ${escapeHtml(s.ops_phase_reason)}` : ''}</div>
+        </div>
+      `;
+    }).join('');
+
+    els.sessionList.querySelectorAll('[data-session]').forEach((node) => {
+      node.addEventListener('click', () => {
+        const id = node.getAttribute('data-session');
+        const session = state.sessions.find((item) => item.session_id === id);
+        if (session) setSelected(session);
+      });
+    });
+  }
+
+  async function api(path, opts = {}) {
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (Telegram?.initData) headers['X-Telegram-Init-Data'] = Telegram.initData;
+    const browserToken = getBrowserToken();
+    if (!Telegram?.initData && browserToken) headers['Authorization'] = `Bearer ${browserToken}`;
+    const response = await fetch(`${location.origin}${path}`, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const raw = await response.text();
+    const contentType = response.headers.get('content-type') || '';
+    let payload = raw;
+    if (contentType.includes('application/json')) {
+      try { payload = JSON.parse(raw); } catch (_) {}
+    }
+    if (!response.ok) {
+      const message = (payload && payload.error) || (payload && payload.detail) || raw || `Request failed (${response.status})`;
+      throw new Error(message);
+    }
+    return payload;
+  }
+
+  async function loadOverviewAndSessions() {
+    showError('');
+    try {
+      const [overview, sessions] = await Promise.all([
+        api('/api/miniapp/overview'),
+        api('/api/miniapp/sessions'),
+      ]);
+      state.overview = overview;
+      state.sessions = sessions.sessions || [];
+      if (!state.selected && state.sessions.length) state.selected = state.sessions[0];
+      if (state.selected) {
+        const fresh = state.sessions.find((s) => s.session_id === state.selected.session_id);
+        if (fresh) state.selected = fresh;
+      }
+      renderOverview();
+      renderSessions();
+      renderSelected();
+      const owner = overview?.owner || {};
+      if (owner.user_id) {
+        els.userLabel.textContent = String(owner.user_id);
+        setAuthState('telegram', true);
+      } else {
+        els.userLabel.textContent = Telegram?.initUnsafe?.user?.id || 'browser';
+        setAuthState(Telegram?.initData ? 'telegram' : 'browser', Boolean(Telegram?.initData));
+      }
+      if (overview?.title) document.title = overview.title;
+    } catch (err) {
+      showError(err.message || String(err));
+      setStatus('Mini app could not load. Check auth and gateway logs.');
+      if (!Telegram?.initData) {
+        setAuthState('browser');
+      }
+      return;
+    }
+  }
+
+  async function sendCommand() {
+    const text = els.commandText.value.trim();
+    if (!text) return;
+    const command = state.mode;
+    const runtime_mode = els.runtimeMode.value || '';
+    const command_label = els.commandName.value.trim();
+    els.sendCommand.disabled = true;
+    try {
+      const result = await api('/api/miniapp/commands', {
+        method: 'POST',
+        body: { command, text, runtime_mode, label: command_label },
+      });
+      els.lastCommandLabel.textContent = `Queued ${result.command} · job ${result.job_id || '—'}`;
+      els.commandText.value = '';
+      await loadOverviewAndSessions();
+      Telegram?.HapticFeedback?.notificationOccurred('success');
+    } catch (err) {
+      showError(err.message || String(err));
+      Telegram?.HapticFeedback?.notificationOccurred('error');
+    } finally {
+      els.sendCommand.disabled = false;
+    }
+  }
+
+  async function sendSessionInput(inputText) {
+    const session = state.selected;
+    if (!session) {
+      showError('Select a session first.');
+      return;
+    }
+    const text = (inputText || els.sessionInput.value || '').trim();
+    if (!text) return;
+    els.sendSessionInput.disabled = true;
+    try {
+      const result = await api(`/api/miniapp/sessions/${encodeURIComponent(session.session_id)}/input`, {
+        method: 'POST',
+        body: { text },
+      });
+      els.inputHint.textContent = `Queued ${result.job_id || 'input'} for ${session.session_id}`;
+      els.sessionInput.value = '';
+      await loadOverviewAndSessions();
+      Telegram?.HapticFeedback?.notificationOccurred('success');
+    } catch (err) {
+      showError(err.message || String(err));
+      Telegram?.HapticFeedback?.notificationOccurred('error');
+    } finally {
+      els.sendSessionInput.disabled = false;
+    }
+  }
+
+  function setMode(mode) {
+    state.mode = mode;
+    els.modeCli.classList.toggle('active', mode === '/cli');
+    els.modeCodex.classList.toggle('active', mode === '/codex');
+    const label = mode === '/codex' ? 'Codex' : 'CLI';
+    els.statusText.textContent = `Compose a ${label} command for BishopBot.`;
+  }
+
+  function fillExamples() {
+    const examples = [
+      'Audit the latest session flow for gaps and summarize the biggest risk.',
+      'Run a BishopBot health check and tell me what is broken.',
+      'Find the last session that needs input and suggest the next move.',
+    ];
+    els.commandText.value = examples[Math.floor(Math.random() * examples.length)];
+  }
+
+  function bindActions() {
+    els.modeCli.addEventListener('click', () => setMode('/cli'));
+    els.modeCodex.addEventListener('click', () => setMode('/codex'));
+    els.refreshAll.addEventListener('click', loadOverviewAndSessions);
+    els.sendCommand.addEventListener('click', sendCommand);
+    els.sendSessionInput.addEventListener('click', () => sendSessionInput());
+    els.sendStop.addEventListener('click', () => sendSessionInput('STOP'));
+    els.clearSelection.addEventListener('click', () => { setSelected(null); });
+    els.fillExamples.addEventListener('click', fillExamples);
+    els.runtimeMode.addEventListener('change', () => {
+      els.statusText.textContent = `Runtime override set to ${els.runtimeMode.value || 'default'}.`;
+    });
+    els.commandText.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        sendCommand();
+      }
+    });
+    els.sessionInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        sendSessionInput();
+      }
+    });
+  }
+
+  async function bootstrap() {
+    if (Telegram) {
+      Telegram.ready();
+      Telegram.expand();
+      const user = Telegram.initUnsafe?.user;
+      if (user?.id) els.userLabel.textContent = String(user.id);
+      if (Telegram.initData) {
+        setAuthState('telegram', true);
+      }
+    } else {
+      const browserToken = getBrowserToken();
+      if (browserToken) setAuthState('browser-token', true);
+      els.userLabel.textContent = 'browser';
+    }
+
+    if (!Telegram?.initData) {
+      const token = getBrowserToken();
+      if (!token) {
+        // Keep the fallback easy to use in desktop testing.
+        saveBrowserToken('');
+      }
+    }
+
+    bindActions();
+    setMode('/cli');
+    await loadOverviewAndSessions();
+    setInterval(loadOverviewAndSessions, 5000);
+  }
+
+  bootstrap().catch((err) => {
+    showError(err.message || String(err));
+    setStatus('Failed to boot the mini app.');
+  });
+})();
+</script>
+</body>
+</html>
