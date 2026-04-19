@@ -269,6 +269,10 @@ Common optional keys:
 - `GEMINI_API_KEY`
 - `FIRECRAWL_API_KEY`
 
+Required if you want the GitHub monitor and Slack notification posts:
+- `SLACK_NOTIFICATIONS_CHANNEL`
+- `GITHUB_TOKEN`
+
 ### 5. Configure your local paths
 
 BISHOP is portable because these paths are explicit in `.env`:

@@ -130,6 +130,10 @@ def doctor() -> int:
     for key in required_env:
         rows.append((key.lower(), bool(env_values.get(key)), "set" if env_values.get(key) else "unset"))
 
+    optional_monitor_env = ("SLACK_NOTIFICATIONS_CHANNEL", "GITHUB_TOKEN")
+    for key in optional_monitor_env:
+        rows.append((key.lower(), bool(env_values.get(key)), "set" if env_values.get(key) else "unset"))
+
     print("BISHOP onboarding doctor\n")
     for label, ok, detail in rows:
         print(f"[{_status(ok):7}] {label:22} {detail}")
@@ -139,6 +143,10 @@ def doctor() -> int:
         print(f"- Run `{__file__} init-env`")
     if not env_values.get("SLACK_BOT_TOKEN"):
         print("- Fill Slack tokens in .env")
+    if not env_values.get("SLACK_NOTIFICATIONS_CHANNEL"):
+        print("- Set SLACK_NOTIFICATIONS_CHANNEL in .env for GitHub monitor and notification posts")
+    if not env_values.get("GITHUB_TOKEN"):
+        print("- Set GITHUB_TOKEN in .env if you want the GitHub monitor to run")
     print(f"- Import or update Slack manifest from {MANIFEST_PATH}")
     print("- Install or repair the full local stack with `./install.sh`")
     print("- Start the full local stack with `./start.sh`")
@@ -164,9 +172,10 @@ def print_next_steps() -> int:
                 "1. Clone the repo.",
                 "2. Run `./install.sh`.",
                 "3. Fill Slack tokens and any optional API keys in `.env`.",
-                "4. Import `manifest.json` into your Slack app and reinstall it.",
-                "5. Start the full local stack with `./start.sh`.",
-                "6. Open the dashboard at http://localhost:3113.",
+                "4. Add `SLACK_NOTIFICATIONS_CHANNEL` and `GITHUB_TOKEN` if you want the GitHub monitor enabled.",
+                "5. Import `manifest.json` into your Slack app and reinstall it.",
+                "6. Start the full local stack with `./start.sh`.",
+                "7. Open the dashboard at http://localhost:3113.",
             ]
         )
     )

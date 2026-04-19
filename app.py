@@ -29,16 +29,42 @@ def _start_slack_socket_mode():
     auth_info = app.client.auth_test()
     bot_user_id = auth_info.get("user_id")
 
-    # Initialize Redis and Queue
-    redis_conn = Redis.from_url(CONFIG["REDIS_URL"])
-    q = Queue(CONFIG["TASK_QUEUE_NAME"], connection=redis_conn)
+    queue_ref = {"queue": None, "attempted": False, "available": False}
+
+    def _get_queue():
+        if queue_ref["attempted"]:
+            return queue_ref["queue"]
+
+        queue_ref["attempted"] = True
+        redis_url = CONFIG.get("REDIS_URL")
+        if not redis_url:
+            print("ℹ️ Redis queue is not configured; slash-command execution paths are disabled, but @mentions can still run.")
+            return None
+
+        try:
+            redis_conn = Redis.from_url(redis_url)
+            queue_ref["queue"] = Queue(CONFIG["TASK_QUEUE_NAME"], connection=redis_conn)
+            queue_ref["available"] = True
+            return queue_ref["queue"]
+        except Exception as exc:
+            print(f"⚠️ Redis queue is unavailable; execution paths are disabled but @mentions can still run: {exc}")
+            queue_ref["queue"] = None
+            return None
 
     def enqueue_task(command, body, say):
+        q = _get_queue()
         user_input = body.get("text", "")
         user_id = body["user_id"]
         response_target = f"slack:{body['channel_id']}"
 
         print(f"📥 Received {command} from {user_id}: {user_input}")
+
+        if q is None:
+            say(
+                f"⚠️ <@{user_id}>, `{command}` is unavailable right now because the execution queue/local worker is offline. "
+                "Use `@BISHOP` for chat, or bring the worker/queue back for terminal execution."
+            )
+            return
 
         # Immediately acknowledge to user
         say(f"📨 <@{user_id}>, task queued for local machine: `{command} {user_input}`")
@@ -104,6 +130,7 @@ def _start_slack_socket_mode():
         _register_cli_action(action_id, control)
 
     def _enqueue_cli_input(body, input_type):
+        q = _get_queue()
         # body["actions"][0]["value"] contains "session_id:TYPE"
         full_value = body["actions"][0]["value"]
         session_id, _ = full_value.split(":")
@@ -117,6 +144,15 @@ def _start_slack_socket_mode():
             or body.get("message", {}).get("ts")
         )
         response_target = f"slack:{channel_id}:{thread_ts}" if channel_id and thread_ts else body["response_url"]
+
+        if q is None:
+            if channel_id and thread_ts:
+                slack_service.post_message(
+                    "⚠️ Terminal controls are unavailable right now because the execution queue/local worker is offline.",
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                )
+            return
 
         q.enqueue(
             "local_worker.process_terminal_input",
@@ -144,6 +180,15 @@ def _start_slack_socket_mode():
 
         session_id = session_link_service.get_slack_thread_session(channel_id, thread_ts)
         if not session_id:
+            return
+
+        q = _get_queue()
+        if q is None:
+            slack_service.post_message(
+                "⚠️ Session replies are unavailable right now because the execution queue/local worker is offline.",
+                channel=channel_id,
+                thread_ts=thread_ts,
+            )
             return
 
         print(f"💬 Received Slack thread reply for session {session_id} from {user_id}: {text}")
