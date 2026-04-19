@@ -19,11 +19,17 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-3113}"
 START_LISTENER=1
 START_DASHBOARD=1
 START_MONITOR=0
+START_OBSERVER=0
 AUTO_BOOTSTRAP=1
 PIDS=()
 CLEANED_UP=0
 APP_PORT="${PORT:-8080}"
 LAST_PID=""
+OBSERVER_BOOT_CMD="${BISHOP_TERMINAL_OBSERVER_BOOT_CMD:-}"
+OBSERVER_HEALTH_URL="${TERMINAL_OBSERVER_LOCAL_URL:-}"
+if [[ -n "$OBSERVER_BOOT_CMD" ]]; then
+    START_OBSERVER=1
+fi
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     BISHOP_NEON=$'\033[38;5;118m'
@@ -46,6 +52,7 @@ Options:
   --no-listener     Start worker only, skip app.py
   --no-ui           Skip the Next.js dashboard
   --with-monitor    Also start github_monitor_worker.py
+  --with-observer   Start the optional terminal observer sidecar from \$BISHOP_TERMINAL_OBSERVER_BOOT_CMD
   --skip-install    Do not auto-run ./install.sh --ensure before startup
   --port <port>     Override dashboard port (default: 3113)
   --help            Show this help
@@ -67,6 +74,9 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-monitor)
             START_MONITOR=1
+            ;;
+        --with-observer)
+            START_OBSERVER=1
             ;;
         --skip-install)
             AUTO_BOOTSTRAP=0
@@ -225,6 +235,11 @@ if [[ "$START_DASHBOARD" -eq 1 ]]; then
     require_port_free "$DASHBOARD_PORT" "Dashboard UI"
 fi
 
+if [[ "$START_OBSERVER" -eq 1 && -z "$OBSERVER_BOOT_CMD" ]]; then
+    echo "Observer sidecar requested, but BISHOP_TERMINAL_OBSERVER_BOOT_CMD is not set." >&2
+    exit 1
+fi
+
 start_process "Local worker" "$PYTHON_BIN" local_worker.py
 sleep 2
 WORKER_PID="$LAST_PID"
@@ -237,6 +252,17 @@ if [[ "$START_LISTENER" -eq 1 ]]; then
     require_alive "$LISTENER_PID" "Slack listener + HTTP gateway"
     require_http "http://127.0.0.1:$APP_PORT/" "Python API" 12 1
     require_alive "$LISTENER_PID" "Slack listener + HTTP gateway"
+fi
+
+if [[ "$START_OBSERVER" -eq 1 ]]; then
+    start_process "Terminal observer sidecar" bash -lc "$OBSERVER_BOOT_CMD"
+    sleep 2
+    OBSERVER_PID="$LAST_PID"
+    require_alive "$OBSERVER_PID" "Terminal observer sidecar"
+    if [[ -n "$OBSERVER_HEALTH_URL" ]]; then
+        require_http "$OBSERVER_HEALTH_URL" "Terminal observer sidecar" 10 1
+        require_alive "$OBSERVER_PID" "Terminal observer sidecar"
+    fi
 fi
 
 if [[ "$START_MONITOR" -eq 1 ]]; then

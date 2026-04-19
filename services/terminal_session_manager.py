@@ -2,8 +2,9 @@ import time
 import uuid
 import threading
 import shlex
+import json
 from datetime import datetime, timezone
-from services import agent_context_service, shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service, slack_service
+from services import agent_context_service, shell_service, reply_service, session_link_service, session_log_service, session_output_service, session_state_service, slack_service, terminal_observer_service
 from services.ops_phase import make_ops_phase_state
 from services.runtime_adapters import get_runtime_adapter
 from config import CONFIG
@@ -289,6 +290,12 @@ class TerminalSessionManager:
                 except Exception:
                     pass
             state_status = (runtime_state.get("status") or "").strip().lower()
+            prompt_transport = session.get("prompt_transport") or runtime_state.get("prompt_transport") or "stdin"
+            inferred_input_required = terminal_observer_service.detect_input_required(
+                parse_output,
+                interactive_allowed=prompt_transport == "stdin",
+                terminal_busy=snapshot.busy,
+            )
             if state_status == "exited" and exit_code == 0:
                 is_complete = True
             elif state_status == "exited" and exit_code not in {None, 0}:
@@ -296,6 +303,7 @@ class TerminalSessionManager:
             completed_task_count = adapter.extract_task_progress(parse_output)
             final_summary = adapter.extract_final_summary(parse_output)
 
+            needs_input = needs_input or inferred_input_required
             session["needs_input"] = needs_input
             session["exit_code"] = exit_code
             session["completed_task_count"] = completed_task_count
@@ -328,6 +336,16 @@ class TerminalSessionManager:
                 session["ops_phase"] = "execute"
                 session["ops_phase_reason"] = "runtime is still active"
 
+            observer = terminal_observer_service.observe_terminal(
+                session_status=session.get("status", "running"),
+                output=parse_output or current_output,
+                prompt_transport=prompt_transport,
+                terminal_busy=snapshot.busy,
+                runtime_label=session.get("runtime_label", adapter.label),
+                launch_mode=session.get("launch_mode"),
+            )
+            session.update(observer.as_dict())
+
             if session.get("status") != previous_status or session.get("final_summary") != previous_final_summary:
                 agent_context_service.update_session_status(
                     session_id,
@@ -353,18 +371,43 @@ class TerminalSessionManager:
                     ),
                 )
 
-            if current_output and current_output != session["last_output"]:
-                TerminalSessionManager.send_status_to_slack(session_id, current_output, needs_input=needs_input)
+            observer_signature = json.dumps(
+                {
+                    "status": session.get("status"),
+                    "observer_state": session.get("observer_state"),
+                    "observer_reason": session.get("observer_reason"),
+                    "suggested_controls": session.get("suggested_controls") or [],
+                    "needs_input": session.get("requires_human_input"),
+                },
+                sort_keys=True,
+            )
+            current_visible_output = current_output or TerminalSessionManager._format_snapshot_output(
+                parse_output,
+                tail_lines=TerminalSessionManager._tail_lines_for_target(session.get("response_url")),
+            )
+            if current_visible_output and (
+                current_visible_output != session["last_output"]
+                or observer_signature != session.get("last_observer_signature")
+            ):
+                TerminalSessionManager.send_status_to_slack(
+                    session_id,
+                    current_visible_output,
+                    needs_input=bool(session.get("requires_human_input")),
+                )
                 session_log_service.append_snapshot(
                     session_id,
                     status=session.get("status", "running"),
                     exists=snapshot.exists,
                     busy=snapshot.busy,
-                    visible_tail=current_output,
+                    visible_tail=current_visible_output,
                     full_output=parse_output,
+                    observer_state=session.get("observer_state"),
+                    observer_reason=session.get("observer_reason"),
+                    suggested_controls=session.get("suggested_controls"),
                 )
-                session["last_output"] = current_output
+                session["last_output"] = current_visible_output
                 session["last_raw_output"] = snapshot.contents or ""
+                session["last_observer_signature"] = observer_signature
                 session["last_poll_time"] = time.time()
 
             if is_complete:
@@ -589,6 +632,12 @@ class TerminalSessionManager:
         context_line = (
             f"_Runtime:_ {runtime_label}  •  _Mode:_ {launch_mode_label}  •  _Status:_ {session_status}  •  _Progress:_ {TerminalSessionManager._progress_label(session)}  •  _Launch:_ `{session.get('launch_command', '(unknown)')}`  •  _Prompt:_ `{prompt_transport}`"
         )
+        observer_state = session.get("observer_state")
+        observer_reason = session.get("observer_reason")
+        if observer_state:
+            context_line += f"  •  _Controller:_ {str(observer_state).replace('_', ' ')}"
+        if observer_reason:
+            context_line += f"  •  _Why:_ {str(observer_reason)[:160]}"
 
         summary_line = session.get("final_summary")
         if summary_line:
@@ -626,44 +675,7 @@ class TerminalSessionManager:
                         "text": {"type": "mrkdwn", "text": formatted_output}
                     }
                 ]
-
-                action_elements = []
-                if controls.get("supports_interactive_controls", True):
-                    action_elements.extend([
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": controls.get("enter_button_label", "✅ Yes / Enter")},
-                            "value": f"{session_id}:ENTER",
-                            "action_id": "cli_input_enter"
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": controls.get("no_button_label", "❌ No")},
-                            "value": f"{session_id}:N",
-                            "action_id": "cli_input_no"
-                        },
-                    ])
-
-                action_elements.extend([
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "📟 Status"},
-                        "value": f"{session_id}:STATUS",
-                        "action_id": "cli_status"
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "🛑 Stop Session"},
-                        "style": "danger",
-                        "value": f"{session_id}:STOP",
-                        "action_id": "cli_stop"
-                    }
-                ])
-
-                blocks.append({
-                    "type": "actions",
-                    "elements": action_elements
-                })
+                blocks.extend(TerminalSessionManager._slack_action_blocks(session_id, session, controls))
 
                 response = slack_service.send_target_message(target, header, blocks=blocks)
                 if response and response.get("ts"):
@@ -694,46 +706,35 @@ class TerminalSessionManager:
                 "text": {"type": "mrkdwn", "text": formatted_output}
             }
         ]
-
-        action_elements = []
-        if controls.get("supports_interactive_controls", True):
-            action_elements.extend([
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": controls.get("enter_button_label", "✅ Yes / Enter")},
-                    "value": f"{session_id}:ENTER",
-                    "action_id": "cli_input_enter"
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": controls.get("no_button_label", "❌ No")},
-                    "value": f"{session_id}:N",
-                    "action_id": "cli_input_no"
-                },
-            ])
-
-        action_elements.extend([
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "📟 Status"},
-                "value": f"{session_id}:STATUS",
-                "action_id": "cli_status"
-            },
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "🛑 Stop Session"},
-                "style": "danger",
-                "value": f"{session_id}:STOP",
-                "action_id": "cli_stop"
-            }
-        ])
-
-        blocks.append({
-            "type": "actions",
-            "elements": action_elements
-        })
+        blocks.extend(TerminalSessionManager._slack_action_blocks(session_id, session, controls))
 
         reply_service.send(target, header, blocks=blocks)
+
+    @staticmethod
+    def _slack_action_blocks(session_id, session, runtime_controls):
+        supports_interactive_controls = bool(runtime_controls.get("supports_interactive_controls", True))
+        suggested_controls = terminal_observer_service.normalize_controls(
+            list(session.get("suggested_controls") or ["STATUS", "STOP"]),
+            interactive_allowed=supports_interactive_controls,
+        )
+        blocks = []
+        for chunk in terminal_observer_service.control_chunks(suggested_controls):
+            elements = []
+            for control in chunk:
+                element = {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": terminal_observer_service.button_label(control, runtime_controls),
+                    },
+                    "value": f"{session_id}:{control}",
+                    "action_id": terminal_observer_service.CONTROL_ACTION_IDS[control],
+                }
+                if control == "STOP":
+                    element["style"] = "danger"
+                elements.append(element)
+            blocks.append({"type": "actions", "elements": elements})
+        return blocks
 
     @staticmethod
     def send_input(session_id, input_text):
@@ -741,6 +742,14 @@ class TerminalSessionManager:
         session = SESSIONS.get(session_id)
         if not session or not session["active"]:
             return False
+
+        control = (input_text or "").strip().upper()
+        if shell_service.is_terminal_control(control):
+            return shell_service.send_control_to_terminal(
+                control,
+                window_id=session["window_id"],
+                tty_path=session.get("tty_path"),
+            )
 
         adapter = get_runtime_adapter(session.get("runtime"))
         translated_input = adapter.terminal_input_for_control(input_text)

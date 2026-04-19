@@ -85,6 +85,9 @@ def append_snapshot(
     busy: bool,
     visible_tail: str,
     full_output: Optional[str] = None,
+    observer_state: Optional[str] = None,
+    observer_reason: Optional[str] = None,
+    suggested_controls: Optional[list[str]] = None,
 ) -> str:
     parts = [
         f"- Status: {status}",
@@ -107,5 +110,14 @@ def append_snapshot(
             cleaned_full,
             "```",
         ])
+    if observer_state:
+        parts.extend([
+            "",
+            f"- Observer state: {observer_state}",
+        ])
+    if observer_reason:
+        parts.append(f"- Observer reason: {observer_reason}")
+    if suggested_controls:
+        parts.append(f"- Suggested controls: {', '.join(suggested_controls)}")
     append_event(session_id, "Terminal snapshot", "\n".join(parts))
     return str(session_log_path(session_id))

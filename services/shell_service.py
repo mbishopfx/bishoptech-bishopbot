@@ -8,6 +8,30 @@ from typing import Optional
 from config import CONFIG
 from services.runtime_adapters import get_runtime_adapter
 
+CONTROL_BYTES = {
+    "ENTER": "\r",
+    "TAB": "\t",
+    "SHIFT_TAB": "\x1b[Z",
+    "ARROW_UP": "\x1b[A",
+    "ARROW_DOWN": "\x1b[B",
+    "ARROW_RIGHT": "\x1b[C",
+    "ARROW_LEFT": "\x1b[D",
+    "ESC": "\x1b",
+    "CTRL_C": "\x03",
+}
+
+DARWIN_CONTROL_EVENTS = {
+    "ENTER": "key code 36",
+    "TAB": "key code 48",
+    "SHIFT_TAB": "key code 48 using shift down",
+    "ARROW_UP": "key code 126",
+    "ARROW_DOWN": "key code 125",
+    "ARROW_RIGHT": "key code 124",
+    "ARROW_LEFT": "key code 123",
+    "ESC": "key code 53",
+    "CTRL_C": 'keystroke "c" using control down',
+}
+
 
 @dataclass
 class TerminalSnapshot:
@@ -191,6 +215,88 @@ def _write_to_tty(tty_path: str, input_text: str, submit: bool) -> bool:
     except Exception as e:
         print(f"⚠️ Error writing to tty {tty_path}: {e}")
         return False
+
+
+def is_terminal_control(control: str) -> bool:
+    return (control or "").strip().upper() in CONTROL_BYTES
+
+
+def _send_control_via_terminal_ui(control: str, window_id=None) -> bool:
+    normalized = (control or "").strip().upper()
+    action = DARWIN_CONTROL_EVENTS.get(normalized)
+    if not action:
+        return False
+
+    target = f"window id {window_id}" if window_id else "front window"
+    keep_terminal_frontmost = _config_truthy("TERMINAL_ACTIVATE_ON_INPUT")
+    previous_app = ""
+
+    try:
+        previous_app_result = subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        previous_app = (previous_app_result.stdout or "").strip()
+    except Exception:
+        previous_app = ""
+
+    restore_line = ""
+    if not keep_terminal_frontmost and previous_app and previous_app != "Terminal":
+        escaped_previous_app = previous_app.replace('"', '\\"')
+        restore_line = f'''
+        delay 0.1
+        tell application "{escaped_previous_app}"
+            activate
+        end tell
+        '''
+
+    script = f'''
+    tell application "Terminal"
+        activate
+        try
+            if exists ({target}) then
+                set frontmost of {target} to true
+            end if
+        end try
+    end tell
+    delay 0.2
+    tell application "System Events"
+        tell process "Terminal"
+            {action}
+        end tell
+    end tell
+    {restore_line}
+    '''
+
+    try:
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error sending Terminal control {normalized} (exit {result.returncode}): {result.stderr.strip()}")
+            return False
+        return True
+    except Exception as e:
+        print(f"Exception sending Terminal control {normalized}: {e}")
+        return False
+
+
+def send_control_to_terminal(control: str, window_id=None, tty_path=None):
+    normalized = (control or "").strip().upper()
+    payload = CONTROL_BYTES.get(normalized)
+    if not payload:
+        return False
+
+    if tty_path:
+        return _write_to_tty(tty_path, payload, submit=False)
+
+    if sys.platform == "darwin":
+        return _send_control_via_terminal_ui(normalized, window_id=window_id)
+
+    return False
 
 
 def _send_input_via_terminal_ui(input_text: str, window_id=None, submit=True) -> bool:

@@ -267,17 +267,11 @@ class UnifiedHealthAndWhatsAppHandler(BaseHTTPRequestHandler):
             parts = self._dashboard_path_parts()
             try:
                 if parts == ["commands"]:
-                    result = dashboard_service.enqueue_dashboard_command(
-                        str(payload.get("command") or "/cli"),
-                        str(payload.get("text") or ""),
-                        str(payload.get("runtime_mode") or "").strip() or None,
-                    )
-                    self._send_json(202, result)
+                    self._send_json(410, {"error": "Dashboard is read-only. Launch /cli and /codex from Slack."})
                     return
 
                 if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "input":
-                    result = dashboard_service.enqueue_session_input(parts[1], str(payload.get("text") or ""))
-                    self._send_json(202, result)
+                    self._send_json(410, {"error": "Dashboard is read-only. Continue sessions from Slack controls or a Slack thread reply."})
                     return
             except ValueError as exc:
                 self._send_json(400, {"error": str(exc)})

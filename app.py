@@ -9,6 +9,7 @@ import threading
 from http.server import HTTPServer
 from bishop_meta.http_handler import UnifiedHealthAndWhatsAppHandler
 from services import gemini_chat_service, session_link_service, slack_service
+from services import terminal_observer_service
 from utils.cli_branding import print_bishop_banner
 
 def _start_slack_socket_mode():
@@ -93,25 +94,14 @@ def _start_slack_socket_mode():
 
     # --- Interactive Button Handlers ---
 
-    @app.action("cli_input_enter")
-    def handle_cli_enter(ack, body, say):
-        ack()
-        _enqueue_cli_input(body, "ENTER")
+    def _register_cli_action(action_id, control):
+        @app.action(action_id)
+        def _handle_dynamic_cli_action(ack, body, say):
+            ack()
+            _enqueue_cli_input(body, control)
 
-    @app.action("cli_input_no")
-    def handle_cli_no(ack, body, say):
-        ack()
-        _enqueue_cli_input(body, "N")
-
-    @app.action("cli_status")
-    def handle_cli_status(ack, body, say):
-        ack()
-        _enqueue_cli_input(body, "STATUS")
-
-    @app.action("cli_stop")
-    def handle_cli_stop(ack, body, say):
-        ack()
-        _enqueue_cli_input(body, "STOP")
+    for control, action_id in terminal_observer_service.CONTROL_ACTION_IDS.items():
+        _register_cli_action(action_id, control)
 
     def _enqueue_cli_input(body, input_type):
         # body["actions"][0]["value"] contains "session_id:TYPE"

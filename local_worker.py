@@ -61,9 +61,16 @@ def process_terminal_input(session_id, input_text, user_id, response_url, send_a
     if input_text == "STATUS":
         snap = TerminalSessionManager.snapshot(session_id)
         session = TerminalSessionManager.SESSIONS.get(session_id, {})
-        runtime_label = session.get("runtime_label", "Agent")
-        msg = f"📟 {runtime_label} session `{session_id}` status:\n```\n{snap or '(no output)'}\n```"
-        send_delayed_message(reply_target, msg)
+        if session:
+            TerminalSessionManager.send_status_to_slack(
+                session_id,
+                snap or "(no output)",
+                needs_input=bool(session.get("requires_human_input")),
+            )
+        else:
+            runtime_label = "Agent"
+            msg = f"📟 {runtime_label} session `{session_id}` status:\n```\n{snap or '(no output)'}\n```"
+            send_delayed_message(reply_target, msg)
         return
 
     if input_text == "STOP":

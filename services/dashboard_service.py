@@ -8,7 +8,8 @@ from typing import Any
 
 from config import CONFIG
 from handlers import cli_handler
-from services import agent_context_service, mcp_registry_service, session_log_service, session_output_service, session_state_service
+from services import agent_context_service, mcp_registry_service, session_log_service, session_output_service, session_state_service, terminal_observer_service, terminal_session_manager
+from services.runtime_adapters import get_runtime_adapter
 
 
 ACTIVE_STATUSES = {"booting", "running", "waiting_for_input", "attention_needed", "settled"}
@@ -160,6 +161,27 @@ def get_session(session_id: str) -> dict[str, Any] | None:
     log_path = session_log_service.session_log_path(session_id)
     session["log_path"] = str(log_path)
     session["log_excerpt"] = _tail_file_text(log_path, max_lines=48)
+
+    live_session = terminal_session_manager.SESSIONS.get(session_id)
+    if live_session:
+        session["observer_state"] = live_session.get("observer_state")
+        session["observer_reason"] = live_session.get("observer_reason")
+        session["observer_confidence"] = live_session.get("observer_confidence")
+        session["suggested_controls"] = list(live_session.get("suggested_controls") or [])
+        session["requires_human_input"] = bool(live_session.get("requires_human_input"))
+    else:
+        prompt_transport = (session["state"].get("prompt_transport") or "").strip().lower()
+        if prompt_transport not in {"stdin", "argv"}:
+            prompt_transport = get_runtime_adapter(session.get("runtime")).prompt_transport(launch_mode=session.get("launch_mode"))
+        observer = terminal_observer_service.observe_terminal(
+            session_status=str(session.get("status") or "running").strip().lower(),
+            output="\n".join(part for part in [session["output_tail"], session["log_excerpt"]] if part),
+            prompt_transport=prompt_transport,
+            terminal_busy=False,
+            runtime_label=str(session.get("runtime") or "agent"),
+            launch_mode=session.get("launch_mode"),
+        )
+        session.update(observer.as_dict())
     return session
 
 

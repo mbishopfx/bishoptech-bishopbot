@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from config import CONFIG
 from services.shell_service import TerminalSnapshot, get_terminal_snapshot
 from services.terminal_session_manager import TerminalSessionManager, SESSIONS
-from services import session_output_service
+from services import session_output_service, terminal_observer_service
 
 
 class TerminalMonitoringTests(unittest.TestCase):
@@ -31,6 +31,40 @@ class TerminalMonitoringTests(unittest.TestCase):
         capture_output = "TASK 2 COMPLETE\nSESSION COMPLETE shipped it\n__BISHOPBOT_RUNTIME_EXIT__:codex:0"
         selected = TerminalSessionManager._best_runtime_parse_output(snapshot_output, capture_output)
         self.assertEqual(selected, capture_output)
+
+    def test_terminal_observer_suggests_navigation_controls_for_menu_prompt(self):
+        observation = terminal_observer_service.observe_terminal(
+            session_status="waiting_for_input",
+            output="Choose an option\n❯ Continue\n  Cancel",
+            prompt_transport="stdin",
+            terminal_busy=False,
+            runtime_label="Gemini",
+            launch_mode="yolo",
+        )
+
+        self.assertEqual(observation.state, "awaiting_input")
+        self.assertIn("ENTER", observation.controls)
+        self.assertIn("ARROW_UP", observation.controls)
+        self.assertIn("ARROW_DOWN", observation.controls)
+        self.assertIn("STATUS", observation.controls)
+
+    @patch("services.terminal_session_manager.shell_service.send_input_to_terminal")
+    @patch("services.terminal_session_manager.shell_service.send_control_to_terminal")
+    def test_send_input_routes_special_controls_to_terminal_control_path(self, mock_send_control, mock_send_input):
+        session_id = "sessctrl1"
+        SESSIONS[session_id] = {
+            "window_id": "123",
+            "tty_path": "/dev/ttys123",
+            "active": True,
+            "runtime": "gemini",
+        }
+        mock_send_control.return_value = True
+
+        ok = TerminalSessionManager.send_input(session_id, "ARROW_DOWN")
+
+        self.assertTrue(ok)
+        mock_send_control.assert_called_once_with("ARROW_DOWN", window_id="123", tty_path="/dev/ttys123")
+        mock_send_input.assert_not_called()
 
     @patch("services.terminal_session_manager.TerminalSessionManager.send_status_to_slack")
     @patch("services.terminal_session_manager.shell_service.get_terminal_snapshot")

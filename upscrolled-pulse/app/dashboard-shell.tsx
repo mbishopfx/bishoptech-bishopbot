@@ -49,6 +49,11 @@ type SessionDetail = SessionSummary & {
   output_tail: string;
   log_path: string;
   log_excerpt: string;
+  observer_state?: string | null;
+  observer_reason?: string | null;
+  observer_confidence?: number | null;
+  suggested_controls?: string[];
+  requires_human_input?: boolean;
 };
 
 type ResourceRow = {
@@ -66,18 +71,9 @@ type NoteRow = {
   updated_at: string;
 };
 
-type ViewKey = "launch" | "sessions" | "memory" | "paths";
-
-const runtimeModeOptions = [
-  { label: "Default", value: "" },
-  { label: "Gemini YOLO", value: "--yolo" },
-  { label: "Codex auto", value: "runtime:codex --full-auto" },
-  { label: "Codex shell", value: "runtime:codex --yolo" },
-  { label: "Gemini forced", value: "runtime:gemini" },
-];
+type ViewKey = "sessions" | "memory" | "paths";
 
 const navItems: Array<{ key: ViewKey; label: string; glyph: string }> = [
-  { key: "launch", label: "Launch", glyph: ">" },
   { key: "sessions", label: "Sessions", glyph: "#" },
   { key: "memory", label: "Memory", glyph: "*" },
   { key: "paths", label: "Paths", glyph: "/" },
@@ -124,23 +120,6 @@ function statusTone(status: string) {
 
 function trimError(text: string) {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
-}
-
-function parseTypedLaunchCommand(command: string, text: string) {
-  const trimmedText = text.trim();
-  const typedCommandMatch = trimmedText.match(/^\/(cli|codex)\b\s*/i);
-
-  if (!typedCommandMatch) {
-    return {
-      command,
-      text: trimmedText,
-    };
-  }
-
-  return {
-    command: `/${typedCommandMatch[1].toLowerCase()}`,
-    text: trimmedText.slice(typedCommandMatch[0].length).trim(),
-  };
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -202,23 +181,17 @@ function AsciiBackdrop() {
 export function DashboardShell() {
   const bootstrappedRef = useRef(false);
   const pollLockRef = useRef(false);
-  const viewRef = useRef<ViewKey>("launch");
+  const viewRef = useRef<ViewKey>("sessions");
   const selectedSessionIdRef = useRef("");
   const sessionsRef = useRef<SessionSummary[]>([]);
   const overviewRef = useRef<Overview | null>(null);
-  const [view, setView] = useState<ViewKey>("launch");
+  const [view, setView] = useState<ViewKey>("sessions");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [resources, setResources] = useState<ResourceRow[]>([]);
   const [notes, setNotes] = useState<NoteRow[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
-  const [composerCommand, setComposerCommand] = useState("/cli");
-  const [composerMode, setComposerMode] = useState("");
-  const [composerText, setComposerText] = useState("");
-  const [sessionInput, setSessionInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [banner, setBanner] = useState("");
   const [connectionIssue, setConnectionIssue] = useState("");
   const [lastSyncedAt, setLastSyncedAt] = useState<string>("");
 
@@ -382,79 +355,6 @@ export function DashboardShell() {
 
   const selectedSessionSummary = sessions.find((session) => session.session_id === selectedSessionId) ?? null;
 
-  async function handleTriggerCommand() {
-    const parsed = parseTypedLaunchCommand(composerCommand, composerText);
-    if (!parsed.text) {
-      setBanner("Enter a command before launching.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const payload = await fetchJson<{ job_id: string }>("/api/dashboard/commands", {
-        method: "POST",
-        body: JSON.stringify({
-          command: parsed.command,
-          runtime_mode: composerMode,
-          text: parsed.text,
-        }),
-      });
-      setBanner(`Queued ${parsed.command} as ${payload.job_id}`);
-      setConnectionIssue("");
-      setComposerText("");
-      setView("sessions");
-      window.setTimeout(() => {
-        startTransition(() => {
-          void (async () => {
-            const latestSessions = await loadLiveData(true);
-            const nextSession =
-              latestSessions?.find((session) => session.user_id === "dashboard") ?? latestSessions?.[0] ?? null;
-            if (nextSession?.session_id) {
-              setSelectedSessionId(nextSession.session_id);
-              await loadSelectedSession(nextSession.session_id, true);
-            }
-          })();
-        });
-      }, 700);
-    } catch (error) {
-      setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to queue command.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function submitOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>, submit: () => void) {
-    if (event.key !== "Enter" || event.shiftKey) {
-      return;
-    }
-
-    event.preventDefault();
-    void submit();
-  }
-
-  async function handleSendSessionInput() {
-    if (!selectedSessionId || !sessionInput.trim()) {
-      setBanner("Pick a session and write the follow-up first.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const payload = await fetchJson<{ job_id: string }>(`/api/dashboard/sessions/${selectedSessionId}/input`, {
-        method: "POST",
-        body: JSON.stringify({ text: sessionInput.trim() }),
-      });
-      setBanner(`Queued follow-up as ${payload.job_id}`);
-      setConnectionIssue("");
-      setSessionInput("");
-      startTransition(() => void loadSelectedSession(selectedSessionId, true));
-    } catch (error) {
-      setConnectionIssue(error instanceof Error ? trimError(error.message) : "Failed to send follow-up.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const stats = [
     { label: "active", value: overview?.sessions.active ?? 0 },
     { label: "waiting", value: overview?.sessions.waiting ?? 0 },
@@ -535,117 +435,8 @@ export function DashboardShell() {
               {connectionIssue}. Holding the last good state.
             </div>
           ) : null}
-          {banner ? (
-            <div className="mx-5 mt-4 rounded-2xl border border-white/8 bg-white/[0.04] px-4 py-3 text-sm text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:mx-7">
-              {banner}
-            </div>
-          ) : null}
-
           <div className="flex min-h-0 flex-1 flex-col gap-5 px-5 py-5 sm:px-7 lg:flex-row">
             <section className="panel-stage min-h-[72vh] flex-1 rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur">
-              {view === "launch" ? (
-                <div className="view-stage grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-                  <div className="space-y-4">
-                    <div className="operator-block">
-                      <div className="operator-label">launch</div>
-                      <div className="operator-copy">Same queue. Same worker. Same runtime flow as Slack.</div>
-                    </div>
-
-                    <form
-                      className="rounded-[24px] border border-white/8 bg-black/18 p-4"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void handleTriggerCommand();
-                      }}
-                    >
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <label className="grid gap-2 text-sm text-zinc-400">
-                          Command
-                          <select
-                            value={composerCommand}
-                            onChange={(event) => setComposerCommand(event.target.value)}
-                            className="rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white outline-none transition focus:border-zinc-300"
-                          >
-                            <option value="/cli">/cli</option>
-                            <option value="/codex">/codex</option>
-                          </select>
-                        </label>
-                        <label className="grid gap-2 text-sm text-zinc-400">
-                          Mode
-                          <select
-                            value={composerMode}
-                            onChange={(event) => setComposerMode(event.target.value)}
-                            className="rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white outline-none transition focus:border-zinc-300"
-                          >
-                            {runtimeModeOptions.map((option) => (
-                              <option key={option.label} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-
-                      <label className="mt-3 grid gap-2 text-sm text-zinc-400">
-                        Instruction
-                        <textarea
-                          value={composerText}
-                          onChange={(event) => setComposerText(event.target.value)}
-                          onKeyDown={(event) => submitOnEnter(event, handleTriggerCommand)}
-                          placeholder="Use openbrowser to inspect the issue, then summarize the blockers."
-                          className="min-h-48 rounded-[22px] border border-white/10 bg-zinc-950/80 px-4 py-4 font-mono text-sm leading-7 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
-                        />
-                      </label>
-
-                      <div className="mt-3 flex items-center justify-between gap-3">
-                        <div className="text-xs uppercase tracking-[0.22em] text-zinc-500">
-                          prompt now routes through vibes-full.md
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={busy}
-                          className="rounded-2xl border border-white/12 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {busy ? "Queueing" : "Trigger"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="operator-block">
-                      <div className="operator-label">queue</div>
-                      <div className="operator-copy">Recent sessions and the current worker backlog.</div>
-                    </div>
-                    <div className="grid gap-3">
-                      {overview?.recent_sessions.slice(0, 5).map((session) => (
-                        <button
-                          key={session.session_id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedSessionId(session.session_id);
-                            setView("sessions");
-                          }}
-                          className="rounded-[22px] border border-white/7 bg-white/[0.03] px-4 py-4 text-left transition hover:border-white/14 hover:bg-white/[0.05]"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-medium text-white">
-                              {session.runtime.toUpperCase()} · {session.session_id}
-                            </div>
-                            <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(session.status)}`}>
-                              {session.status.replaceAll("_", " ")}
-                            </span>
-                          </div>
-                          <div className="mt-3 text-sm leading-6 text-zinc-300">
-                            {session.original_request || session.refined_request || "No request captured."}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
               {view === "sessions" ? (
                 <div className="view-stage grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
                   <div className="space-y-3">
@@ -703,6 +494,45 @@ export function DashboardShell() {
                           </div>
                         </div>
 
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                            <div className="operator-label">controller</div>
+                            <div className="mt-3 flex items-center gap-3">
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] ${statusTone(selectedSession.observer_state || selectedSession.status)}`}>
+                                {(selectedSession.observer_state || selectedSession.status).replaceAll("_", " ")}
+                              </span>
+                              {typeof selectedSession.observer_confidence === "number" ? (
+                                <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                                  conf {Math.round(selectedSession.observer_confidence * 100)}%
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-3 text-sm leading-6 text-zinc-200">
+                              {selectedSession.observer_reason || "Controller has not added a note yet."}
+                            </div>
+                          </div>
+                          <div className="rounded-[22px] border border-white/7 bg-black/16 p-4">
+                            <div className="operator-label">slack controls</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {(selectedSession.suggested_controls || []).length > 0 ? (
+                                (selectedSession.suggested_controls || []).map((control) => (
+                                  <span
+                                    key={control}
+                                    className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs uppercase tracking-[0.18em] text-zinc-200"
+                                  >
+                                    {control.replaceAll("_", " ")}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-sm text-zinc-500">No controls suggested.</span>
+                              )}
+                            </div>
+                            <div className="mt-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                              Dashboard is read-only. Use Slack `/cli`, `/codex`, or the Slack thread buttons to act.
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="grid gap-4 xl:grid-cols-2">
                           <div className="rounded-[22px] border border-white/7 bg-zinc-950/85 p-4">
                             <div className="operator-label">live tail</div>
@@ -717,32 +547,6 @@ export function DashboardShell() {
                             </pre>
                           </div>
                         </div>
-
-                        <form
-                          className="rounded-[22px] border border-white/7 bg-black/16 p-4"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void handleSendSessionInput();
-                          }}
-                        >
-                          <div className="operator-label">follow-up</div>
-                          <div className="mt-3 flex flex-col gap-3 lg:flex-row">
-                            <textarea
-                              value={sessionInput}
-                              onChange={(event) => setSessionInput(event.target.value)}
-                              onKeyDown={(event) => submitOnEnter(event, handleSendSessionInput)}
-                              placeholder="Continue with the OpenClaw memory path and summarize what changed."
-                              className="min-h-24 flex-1 rounded-2xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-zinc-500 focus:border-zinc-300"
-                            />
-                            <button
-                              type="submit"
-                              disabled={busy || !selectedSessionId}
-                              className="rounded-2xl border border-white/12 bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              Send
-                            </button>
-                          </div>
-                        </form>
                       </>
                     ) : (
                       <div className="rounded-[22px] border border-dashed border-white/10 px-6 py-12 text-center text-sm text-zinc-500">

@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <a href="#what-bishop-is"><strong>What it is</strong></a>
+  ·
+  <a href="#how-it-works"><strong>How it works</strong></a>
+  ·
   <a href="#quickstart"><strong>Quickstart</strong></a>
   ·
   <a href="docs/BISHOP_SYSTEM.md"><strong>System Brief</strong></a>
@@ -29,107 +33,186 @@
   ·
   <code>/codex</code> for Codex execution
   ·
-  <code>localhost:3113</code> for dashboard control
+  <code>http://localhost:3113</code> for dashboard visibility
 </p>
 
 ---
 
-BISHOP turns Slack and a dashboard into a control plane for real Gemini and Codex CLI sessions while keeping execution on your machine, preserving visible terminal state, and layering in durable memory, queueing, and environment awareness.
+## What BISHOP is
 
-It is intentionally lighter than full hosted agent platforms: smaller control plane, lower runtime cost, clearer execution model, and far less platform lock-in.
+BISHOP turns Slack and a dashboard into a control plane for real Gemini and Codex CLI sessions while keeping execution on your machine.
 
-## At a glance
+It is intentionally different from a hosted agent product:
+- the work happens in visible local terminals
+- the same session can be observed from Slack and the dashboard
+- durable context is stored locally
+- MCP use is optional and project-scoped
+- the orchestration layer stays small enough to debug and extend
 
-| Surface | What it does |
-| --- | --- |
-| Slack | Start sessions, monitor progress, and continue work inside one thread |
-| Dashboard | Launch commands, inspect sessions, read logs, and send follow-ups |
-| Terminal | Run real Gemini and Codex CLI sessions locally |
-| Memory | Keep durable context in `GEMINI.md`, `vibes.md`, and SQLite |
-| MCP layer | Enable project MCP servers only when they are actually needed |
-
-## Core loop
-
-1. Trigger work from Slack or the dashboard.
-2. Queue it through Redis/RQ.
-3. Launch the real runtime in Terminal.
-4. Stream output back to Slack and the dashboard.
-5. Continue the same run with thread replies or follow-up input.
-6. Preserve durable context locally for future sessions.
-
-## Platform summary
-
-BISHOP is best understood as four layers working together:
-
-- Control surfaces: Slack commands, Slack thread replies, and the local dashboard UI.
-- Orchestration: Redis/RQ queueing, request refinement, runtime planning, and session routing.
-- Execution: real Gemini and Codex CLI sessions inside Terminal.
-- Context: `GEMINI.md`, `agent-context/vibes.md`, `agent-context/vibes-full.md`, and `agent-context/memory.sqlite`.
-
-The product value is not that it invents a new model runtime. The value is that it makes existing runtimes operational: startable from Slack, observable in one thread, steerable mid-run, and grounded in local context and files.
+If you want a local, inspectable, low-lock-in operator stack instead of a black box, this is that.
 
 ## What BISHOP does
 
-- Starts real local terminal sessions from Slack or the dashboard.
-- Launches Gemini or Codex in runtime-specific modes such as `gemini --yolo` and `codex exec --full-auto`.
-- Streams runtime output and status back into Slack threads and the dashboard session view.
-- Lets operators continue the same run by replying in Slack or sending follow-up input from the dashboard.
-- Maintains durable local context with `GEMINI.md`, `agent-context/vibes.md`, and `agent-context/memory.sqlite`.
-- Indexes important system paths like Hermes, OpenClaw, skill directories, logs, and MCP registry files so runtimes reason from actual files instead of guesses.
-- Provides a curated MCP registry and project Gemini settings workflow without forcing MCP usage on every task.
+- Starts real Gemini or Codex terminal sessions from Slack.
+- Streams output, logs, status, and operator controls back to Slack threads and the dashboard session view.
+- Lets you continue a running session from Slack thread replies and Slack action buttons.
+- Keeps durable local context in markdown files, SQLite, and project-specific settings.
+- Tracks useful system paths so the runtime can reason from actual files instead of guessing.
+- Supports a curated MCP registry and project Gemini settings generation when tools are needed.
+
+## How it works
+
+BISHOP is built as a thin control plane on top of existing tools.
+
+1. A user sends a request from Slack.
+2. The request is queued through Redis/RQ.
+3. The local worker launches the appropriate CLI session in Terminal.
+4. Output is streamed back to Slack and mirrored into the dashboard.
+5. Follow-up input is routed back into the same live session from Slack.
+6. Durable context is updated locally for future runs.
+
+That gives you a single operational loop with clear state and predictable failure points.
+
+## Control surfaces
+
+### Slack
+
+Slack is the fastest way to start and steer work.
+
+Use it to:
+- launch sessions
+- ask for brainstorming/help
+- continue a live run in-thread
+- review output and final summaries
+
+Example commands:
+
+```text
+@BISHOP give me a launch plan for the dashboard
+/cli inspect this repo and fix the failing listener test
+/codex scaffold a new route and summarize the changes
+```
+
+How to use it:
+1. Mention `@BISHOP` for lightweight brainstorm/help responses.
+2. Use `/cli` when you want Gemini to execute a task in a real terminal session.
+3. Use `/codex` when you want Codex to execute the task.
+4. Reply in the thread to continue the same session.
+
+### Dashboard
+
+The dashboard is the local operator UI at `http://localhost:3113`.
+
+Use it to:
+- inspect active and past sessions
+- view live output and logs
+- inspect controller state and suggested Slack controls
+- browse memory and environment context
+
+How to use it:
+1. Start BISHOP locally.
+2. Open `http://localhost:3113`.
+3. Inspect sessions, logs, and controller state from the UI.
+4. Continue the session from Slack using thread replies or the action buttons.
+
+### Terminal execution
+
+This is where the real work happens.
+
+BISHOP launches:
+- Gemini in terminal-native mode such as `gemini --yolo`
+- Codex in runtime-specific modes such as `codex exec --full-auto`
+
+Why this matters:
+- you can see the actual session
+- you keep the runtime on your machine
+- logs and output remain inspectable
+- you avoid inventing a separate proprietary agent runtime
+
+How to use it directly:
+- run `./start.sh` to bring up the full stack
+- run `./.venv/bin/python local_worker.py` to start the worker only
+- run `./.venv/bin/python app.py` to start the Slack listener only
+
+## Runtime model
+
+### `@BISHOP`
+
+Use `@BISHOP` for lightweight drafting, brainstorming, and routing help.
+
+It:
+- prefers Gemini API when available
+- can fall back to a signed-in local Gemini CLI and then OpenAI when needed
+- does not claim terminal execution
+- is best for fast, conversational assistance
+
+### `/cli`
+
+Use `/cli` when you want Gemini to actually do the work in a terminal.
+
+It:
+- launches Gemini in a real local session
+- waits for the prompt to be ready before sending the request
+- keeps the run attached to one Slack thread
+- mirrors the same session into the dashboard observer view
+
+Example:
+
+```text
+/cli inspect the repo and patch the auth bug
+```
+
+### `/codex`
+
+Use `/codex` when you want Codex to drive the task in a terminal.
+
+It:
+- launches Codex in a real local session
+- supports `exec --full-auto` and shell-style variants
+- shares the same session model and dashboard visibility as `/cli`
+
+Example:
+
+```text
+/codex scaffold the new endpoint and explain the changes
+```
+
+## Auth and policy model
+
+BISHOP does not proxy, mint, or reimplement third-party model auth.
+
+Instead, it delegates to the official local CLIs you already use on your machine.
+
+That means:
+- Slack uses Slack’s own bot/app credentials and Socket Mode
+- Gemini runs through the Gemini CLI you are signed into locally
+- Codex runs through the Codex CLI you are signed into locally
+- provider-native sign-in/session storage is handled by the provider CLI itself
+- BISHOP only launches and supervises those clients; it does not invent a separate auth layer
+
+This is the cleanest way to stay aligned with external integration policies because BISHOP uses the provider’s own client and session handling rather than trying to emulate or bypass it. If a provider uses OAuth, device authorization, or another native sign-in flow, that flow stays inside the official CLI/runtime.
 
 ## What makes it different
 
 - Local-first execution: work runs in real terminals on your machine, not inside a hidden hosted agent runtime.
-- One worker path: Slack and the dashboard both enqueue into the same Redis/RQ flow, which reduces drift and debugging complexity.
+- One worker path: Slack and the dashboard both enqueue into the same Redis/RQ flow.
 - Thread-native collaboration: one session maps to one Slack thread, so status, follow-ups, and results stay together.
-- Small durable memory: SQLite plus a few markdown files is enough to make sessions stateful without introducing a heavy memory platform.
-- Thin integration layer: Hermes and OpenClaw stay external systems; BISHOP knows where they live and how to inspect them, but does not try to reimplement them.
-
-## Why use it
-
-Compared with heavier agent platforms, BISHOP is:
-
-- Lower cost: it rides local CLIs and your own machine.
-- More transparent: the work happens in visible terminal sessions with logs, state files, and queue history.
-- More controllable: you can interrupt, redirect, or continue a session without leaving Slack or the dashboard.
-- More hackable: the orchestration layer is small Python plus Slack Bolt, Redis/RQ, Next.js, and AppleScript.
-- Easier to extend: you can add paths, prompts, memories, MCP entries, and runtime adapters without rebuilding the whole stack.
+- Small durable memory: SQLite plus a few markdown files is enough to make sessions stateful.
+- Thin integration layer: external systems stay external; BISHOP knows how to launch and inspect them, but it does not reimplement them.
 
 ## Current architecture
 
 - `app.py`: Slack Socket Mode listener and input routing.
 - `local_worker.py`: local RQ worker that launches and controls terminal sessions.
 - `services/terminal_session_manager.py`: runtime lifecycle, polling, Slack updates, and status recovery.
+- `services/terminal_observer_service.py`: terminal-state classification plus suggested control generation for Slack.
 - `services/runtime_adapters.py`: Gemini/Codex launch behavior and prompt construction.
 - `services/agent_context_service.py`: durable context, seeded resource index, and SQLite session memory.
-- `services/dashboard_service.py`: dashboard read models plus queue-backed command and follow-up input dispatch.
+- `services/dashboard_service.py`: dashboard read models for sessions, logs, memory, and controller state.
 - `services/mcp_registry_service.py`: MCP catalog sync, registry curation, and project Gemini settings generation.
 - `scripts/agent_memory.py`: helper CLI for reading and writing BISHOP memory.
 - `scripts/bishop_onboard.py`: onboarding and environment doctor CLI.
-- `upscrolled-pulse/`: Next.js operator dashboard.
-
-## Runtime model
-
-### `@BISHOP`
-
-- lightweight brainstorming and drafting path
-- prefers Gemini API when available
-- can fall back to local signed-in Gemini CLI and then OpenAI when needed
-- does not claim execution
-
-### `/cli`
-
-- default execution path
-- launches Gemini in a real Terminal session
-- waits for Gemini to become ready before pasting and submitting the request
-- keeps the run inside one Slack thread
-
-### `/codex`
-
-- alternate execution path for Codex
-- supports `exec --full-auto` and shell-style variants
-- uses the same queue, session model, and dashboard visibility as `/cli`
+- `upscrolled-pulse/`: Next.js operator dashboard observer.
 
 ## Quickstart
 
@@ -147,7 +230,6 @@ cd BishopBot
 ```
 
 `./install.sh` is the one-shot bootstrap command. It will:
-
 - install missing local system dependencies with Homebrew when possible (`python@3.11`, `node`, `redis`)
 - rebuild `.venv` with a compatible Python if your current venv is too old
 - install Python dependencies from `requirements_local.txt`
@@ -163,14 +245,13 @@ cd BishopBot
 ```
 
 This writes a starter `.env` using detected defaults for:
-
 - `PROJECT_ROOT_DIR`
 - `HERMES_HOME`
 - `OPENCLAW_HOME`
 - `SHARED_SKILLS_DIR`
 - `GEMINI_SKILLS_DIR`
 
-If you need to validate a machine before running anything:
+To validate a machine before starting anything:
 
 ```bash
 ./scripts/bishop_onboard.py doctor
@@ -179,20 +260,18 @@ If you need to validate a machine before running anything:
 ### 4. Fill your secrets in `.env`
 
 At minimum for Slack:
-
 - `SLACK_BOT_TOKEN`
 - `SLACK_APP_TOKEN`
 - `SLACK_SIGNING_SECRET`
 
 Common optional keys:
-
 - `OPENAI_API_KEY`
 - `GEMINI_API_KEY`
 - `FIRECRAWL_API_KEY`
 
 ### 5. Configure your local paths
 
-BISHOP is portable because these paths are now explicit in `.env`:
+BISHOP is portable because these paths are explicit in `.env`:
 
 ```bash
 PROJECT_ROOT_DIR=/absolute/path/to/your/repo
@@ -206,33 +285,35 @@ If you do not use Hermes or OpenClaw on a machine, you can still point these to 
 
 ### 6. Set up Slack
 
-Import or update the app manifest from:
-
-```bash
-manifest.json
-```
+Import or update the app manifest from `manifest.json`.
 
 Important capabilities in the manifest:
-
-- Slash commands
+- slash commands
 - Socket Mode
 - `message.*` bot events for thread replies
-- `chat:write` scopes and history scopes for thread routing
+- history scopes for thread routing
 
 After importing or updating the manifest, reinstall the Slack app in your workspace.
 
 ### 7. Start BISHOP locally
 
-The master command is now:
+The master command is:
 
 ```bash
 ./start.sh
 ```
 
-`./start.sh` now runs `./install.sh --ensure` first by default, then starts the local worker, the Slack listener / local HTTP API, and the dashboard UI in one shot. If any core process crashes on boot, `start.sh` exits with the real failure instead of pretending the stack is healthy.
+`./start.sh` runs `./install.sh --ensure` first, then starts the local worker, the Slack listener / local HTTP API, and the dashboard UI in one shot. If any core process crashes on boot, `start.sh` exits with the real failure instead of pretending the stack is healthy.
+
+Optional observer sidecar:
+
+```bash
+BISHOP_TERMINAL_OBSERVER_BOOT_CMD="<your-local-observer-start-command>" ./start.sh --with-observer
+```
+
+If you set `TERMINAL_OBSERVER_LOCAL_URL`, BISHOP will health-check that sidecar on startup and use it to classify terminal state. Without it, BISHOP falls back to built-in heuristics.
 
 Default local endpoints:
-
 - Dashboard: `http://localhost:3113`
 - Python API: `http://127.0.0.1:8080`
 
@@ -260,10 +341,10 @@ If the UI and API are not both local, set a shared token in both places:
 
 ```bash
 # root .env
-DASHBOARD_API_TOKEN=choose-a-secret
+DASHBOARD_API_TOKEN=***
 
 # upscrolled-pulse/.env.local
-BISHOP_DASHBOARD_API_TOKEN=choose-a-secret
+BISHOP_DASHBOARD_API_TOKEN=***
 ```
 
 Open [http://localhost:3113](http://localhost:3113) to use the dashboard.
@@ -308,7 +389,6 @@ Examples:
 ```
 
 Session behavior:
-
 1. BISHOP posts the initial status as a Slack message.
 2. That message becomes the session thread root.
 3. All later output stays in that thread.
@@ -318,33 +398,29 @@ Session behavior:
 
 The dashboard mirrors the same local-first operator flow as Slack rather than bypassing it.
 
-- Trigger `/cli` and `/codex` through the same queue and local worker Slack uses.
 - Inspect recent sessions, live output tails, log excerpts, and final summaries.
-- Send follow-up input into active sessions from the UI.
+- Inspect controller state, confidence, and suggested Slack controls for active sessions.
 - Browse durable memory, path inventory, and resource locations for Hermes, OpenClaw, session logs, and the SQLite store.
-- Uses a left-rail operator layout with throttled polling rather than a separate execution engine.
+- Use the left-rail operator layout with throttled polling rather than a separate execution engine.
 
-This keeps the control plane crisp: one worker path, one session model, one durable state layer.
+This keeps the control plane crisp: Slack is the execution/control surface, and the dashboard is the observer surface.
 
 ## Persistent context and memory
 
 BISHOP ships with a local context layer:
-
 - `agent-context/vibes.md`
 - `agent-context/memory.sqlite`
 - `agent-context/vibes-full.md`
 - `GEMINI.md`
 
-The runtime prompt now includes:
-
+The runtime prompt includes:
 - compact task/request guidance
 - file-based project context from `GEMINI.md`
-- the BISHOP memory and environment map when needed
+- memory and environment map data when needed
 - seeded external paths for Hermes, OpenClaw, and skill directories
 - recent durable notes when they are relevant
 
 The session lifecycle is also tracked automatically in SQLite, including:
-
 - session id
 - runtime
 - launch mode
@@ -371,7 +447,6 @@ To write a durable note manually:
 BISHOP does not try to replace Hermes or OpenClaw internals.
 
 Instead, it gives Gemini/Codex enough durable context to:
-
 - know where Hermes and OpenClaw live
 - inspect their config, memory, sessions, and script directories
 - discover cron-related artifacts and skill folders
@@ -385,7 +460,7 @@ BISHOP supports MCPs, but it does not force them into every run.
 
 - `config/mcp_registry.json` is the curated registry.
 - `agent-context/mcp_catalog_snapshot.json` is the generated searchable snapshot of the external catalog repo.
-- `.gemini/settings.json` is the actual project activation layer for Gemini MCP servers. It is a local generated file and is gitignored.
+- `.gemini/settings.json` is the actual project activation layer for Gemini MCP servers. It is local, generated, and gitignored.
 
 If `.gemini/settings.json` is missing on a machine, generate it with:
 
@@ -394,7 +469,6 @@ If `.gemini/settings.json` is missing on a machine, generate it with:
 ```
 
 Operationally:
-
 - if a server is not enabled in `.gemini/settings.json`, Gemini cannot use it
 - if a server is enabled, Gemini can use it when the task actually calls for it
 - BISHOP should prefer local repo/files first and only reach for MCP capability when it materially improves the task
